@@ -25,4 +25,7 @@ export EDITOR=vim
 type -f rbenv >/dev/null 2>&1 && eval "$(rbenv init -)"
 
 export SSH_AUTH_SOCK=$(find /tmp/ssh-*/agent.* -user $LOGNAME 2>/dev/null | head -n1)
-[ -z "$SSH_AUTH_SOCK" ] && . <(ssh-agent) && ssh-add
+[ -z "$SSH_AUTH_SOCK" ] && . <(ssh-agent)
+ssh-add -L | grep -q "$(cut -f1,2 -d' ' ~/.ssh/id_rsa.pub)" || ssh-add
+
+[ -r ~/.byobu/prompt ] && . ~/.byobu/prompt   #byobu-prompt#
