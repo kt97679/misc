@@ -16,3 +16,4 @@ set cindent         "Like smartindent, but stricter and more customisable
 " needed, and have indentation at 8 chars to be sure that all indents are tabs
 " (despite the mappings later):
 autocmd FileType make set noexpandtab shiftwidth=8 softtabstop=0
+setlocal cm=blowfish2
