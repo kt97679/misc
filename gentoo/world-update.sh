@@ -1,6 +1,12 @@
 #!/bin/bash
 
 set -ue
+
+[ "$(id -u)" != "0" ] && {
+    sudo $0 || true
+    exit
+}
+
 exec &> >(tee /tmp/$(basename $0).log)
 
 #until emerge --sync ; do sleep 10; done
