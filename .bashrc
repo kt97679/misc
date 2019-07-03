@@ -2,6 +2,7 @@
 
 [ -f /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
 
+HISTCONTROL=ignoredups
 HISTSIZE=$((1024 * 1024))
 HISTFILESIZE=$HISTSIZE
 HISTTIMEFORMAT='%t%F %T%t'
