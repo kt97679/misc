@@ -29,9 +29,12 @@ cd /usr/src/linux
 zcat /proc/config.gz > /usr/src/linux/.config
 # if new kernel options were added we use default settings
 make olddefconfig && make
-mv /boot/zImage /boot/zImage.old
-cp arch/arm/boot/zImage /boot/
-cp arch/arm/boot/dts/tegra124-jetson-tk1.dtb /boot
+ln -f /boot/zImage /boot/zImage.old
+cp arch/arm/boot/zImage /boot/zImage.new
+mv /boot/zImage.new /boot/zImage
+ln -f /boot/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.old
+cp arch/arm/boot/dts/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.new
+mv /boot/tegra124-jetson-tk1.dtb.new /boot/tegra124-jetson-tk1.dtb
 make modules_install
 # if our root is on the emmc - exit
 mount | grep -q ^/dev/mmcblk0p1 && exit
