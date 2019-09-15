@@ -28,7 +28,7 @@ cd /usr/src/linux
 # current kernel config is used
 zcat /proc/config.gz > /usr/src/linux/.config
 # if new kernel options were added we use default settings
-make olddefconfig && make
+make olddefconfig && make -j $(grep -c ^processor /proc/cpuinfo)
 ln -f /boot/zImage /boot/zImage.old
 cp arch/arm/boot/zImage /boot/zImage.new
 mv /boot/zImage.new /boot/zImage
