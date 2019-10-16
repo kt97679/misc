@@ -26,7 +26,7 @@ renew_domain() {
     local not_after_seconds=$(date -d \
             "$(openssl x509 -in "$fullchain_pem" -noout -dates | grep -oP "^notAfter=\K.*")" \
         +%s)
-    ((not_after_seconds - now_seconds > 31 * seconds_per_day)) && return
+    ((not_after_seconds - now_seconds > 7 * seconds_per_day)) && return
     mkdir -p $new_domain_dir && chmod 0700 $new_domain_dir
     # Generate a domain private key
     openssl genrsa 4096 > "$new_privkey_pem"
