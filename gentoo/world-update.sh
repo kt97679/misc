@@ -16,7 +16,7 @@ eclean-dist --deep
 
 # system update is done now let's check if we need to build new kernel
 usr_src_linux_old=$(readlink -f /usr/src/linux)
-eselect kernel set 1
+eselect kernel set $(cd /usr/src && ls -dt *-gentoo|head -n1)
 usr_src_linux_new=$(readlink -f /usr/src/linux)
 [ "$usr_src_linux_old" == "$usr_src_linux_new" ] && exit
 # symlink was updated, let's remove old sources (if any) and build new kernel
