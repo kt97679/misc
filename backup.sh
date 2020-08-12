@@ -15,7 +15,7 @@ if [ -z "$HOST" ] ; then
     HOST=$(hostname -s)
 else
     rsync_options="-e ssh"
-    remote_host="${LOGNAME}@${HOST}:"
+    remote_host="${SUDO_USER}@${HOST}:"
 fi
 
 [ -d ${WORK_DIR}/${HOST} ] || {
