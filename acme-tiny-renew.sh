@@ -11,6 +11,7 @@ exec &> >(tee /tmp/$(basename $0).log)
 seconds_per_day=$((60 * 60 * 24))
 base_dir="/etc/acme-tiny"
 account_key="${base_dir}/account.key"
+check_expiration=true
 
 now_seconds=$(date +%s)
 certificate_updated=false
@@ -26,7 +27,7 @@ renew_domain() {
     local not_after_seconds=$(date -d \
             "$(openssl x509 -in "$fullchain_pem" -noout -dates | grep -oP "^notAfter=\K.*")" \
         +%s)
-    ((not_after_seconds - now_seconds > 7 * seconds_per_day)) && return
+    $check_expiration && ((not_after_seconds - now_seconds > 7 * seconds_per_day)) && return
     mkdir -p $new_domain_dir && chmod 0700 $new_domain_dir
     # Generate a domain private key
     openssl genrsa 4096 > "$new_privkey_pem"
@@ -37,6 +38,19 @@ renew_domain() {
     ls -dt ${domain_dir}.* | tail -n +2 | xargs rm -rf
     certificate_updated=true
 }
+
+usage() {
+    echo "Usage: $0 [-f]"
+    exit 1
+}
+
+while (( $# )); do
+    case ${1:-} in
+        -f) check_expiration=false ;;
+	*) echo "Error: unknown option \"$1\"" && usage ;;
+    esac
+    shift
+done
 
 cd $base_dir
 
