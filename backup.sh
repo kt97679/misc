@@ -3,6 +3,9 @@
 set -ue
 
 HOST=${1:-}
+
+((UID != 0)) && exec sudo -E $0 $HOST
+
 BACKUP_NUM=999
 WORK_DIR=$(cd $(dirname $0) && pwd)
 
@@ -20,12 +23,13 @@ fi
     exit
 }
 [ -f ${WORK_DIR}/${HOST}/.config ] && . ${WORK_DIR}/${HOST}/.config
-current=${WORK_DIR}/${HOST}/$(date +%F_%T)/
+latest=${WORK_DIR}/${HOST}/latest/
 previous=$(ls -dt ${WORK_DIR}/${HOST}/* | head -n1)
 ls -dt ${WORK_DIR}/${HOST}/* | tail -n +${BACKUP_NUM} | xargs rm -rf
 [ -n "$previous" ] && rsync_options+=" --link-dest=$previous"
 
-sudo -E rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $current
+rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest
+mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)/
 
 # ls -dt /media/kvt/backup/*/*|grep -v -f <(for x in /media/kvt/backup/*; do [ -d $x ] && ls -dt $x/*|head -n5; done)|tail -n 1
 #while [ $(df --output=avail $WORK_DIR|tail -n 1) == 0 ]; do
