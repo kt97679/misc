@@ -1,6 +1,9 @@
 #!/bin/bash
+
+password_length=${1:-16}
+
 tr -dc [:graph:] </dev/urandom \
-    | fold -w 16 \
+    | fold -w $password_length \
     | grep "[a-z]" \
     | grep "[A-Z]" \
     | grep "[0-9]" \
