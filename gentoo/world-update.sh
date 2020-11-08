@@ -6,11 +6,13 @@ set -ue
 
 exec &> >(tee /tmp/$(basename $0).log)
 
+cpu_cores="$(grep -c ^processor /proc/cpuinfo)"
+
 #until emerge --sync ; do sleep 10; done
-emerge -uDNav world
-emerge @preserved-rebuild
-emerge -uDNav --with-bdeps=y @world
-emerge --depclean
+emerge --jobs=$cpu_cores -uDNav world
+emerge --jobs=$cpu_cores @preserved-rebuild
+emerge --jobs=$cpu_cores -uDNav --with-bdeps=y @world
+emerge --jobs=$cpu_cores --depclean
 # remove obsolete files from the /usr/portage/distfiles
 eclean-dist --deep
 
@@ -25,7 +27,7 @@ cd /usr/src/linux
 # current kernel config is used
 zcat /proc/config.gz > /usr/src/linux/.config
 # if new kernel options were added we use default settings
-make olddefconfig && make -j $(grep -c ^processor /proc/cpuinfo)
+make olddefconfig && make -j $cpu_cores
 make modules_install
 ln -f /boot/zImage /boot/zImage.old
 cp arch/arm/boot/zImage /boot/zImage.new
