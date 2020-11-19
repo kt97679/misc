@@ -1,3 +1,10 @@
+#!/bin/bash
+
+[ -n "$SSH_TTY" ] && {
+    export SHELL="$HOME/.bash-ssh" && chmod +x "$SHELL"
+    [ "${BASH_SOURCE[0]}" == "${0}" ] && exec /bin/bash --rcfile "$SHELL" "$@"
+}
+
 [ -z "$PS1" ] && return
 
 [ -f /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
@@ -17,7 +24,9 @@ alias m=less
 alias cp="cp -i"
 alias mv="mv -i"
 
-bak() { cp $1 $1.$(date +%s); }
+bak() { cp $1 $1.$(date +%%F_%T); }
+doh() { curl -s -H 'accept: application/dns+json' "https://dns.google.com/resolve?name=$1" | jq; }
+sshb() { command ssh -t "$@" "bash --rcfile <(echo $(base64 <~/.bashrc|tr -d '\n')|base64 -d|tee \$HOME/.bash-ssh) -i"; }
 
 #umask 0002
 export EDITOR=vim
@@ -27,10 +36,11 @@ export EDITOR=vim
 type -f rbenv >/dev/null 2>&1 && eval "$(rbenv init -)"
 type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
 
-[ -f ~/.ssh/id_rsa.pub ] && [ -f ~/.ssh/id_rsa ] && {
+[ -f ~/.ssh/id_rsa ] && [ -f ~/.ssh/id_rsa.pub ] && {
     export SSH_AUTH_SOCK=$(find /tmp/ssh-*/agent.* -user $LOGNAME 2>/dev/null | head -n1)
     [ -z "$SSH_AUTH_SOCK" ] && . <(ssh-agent)
     ssh-add -L | grep -q "$(cut -f1,2 -d' ' ~/.ssh/id_rsa.pub)" || ssh-add
 }
+[ -r ~/.byobu/prompt ] && . ~/.byobu/prompt
 
-[ -r ~/.byobu/prompt ] && . ~/.byobu/prompt   #byobu-prompt#
+export DOCKER_HOST=unix:///var/run/docker.sock
