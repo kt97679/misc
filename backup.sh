@@ -24,7 +24,7 @@ get_lock() {
             echo $BASHPID >$PID_LIST.new && mv $PID_LIST.new $PID_LIST && return 0
         done < $PID_LIST
         echo $BASHPID >>$PID_LIST
-    done
+    done 2>/dev/null
 }
 
 rsync_options=""
