@@ -20,8 +20,10 @@
 HISTSIZE=$((1024 * 1024))
 HISTFILESIZE=$HISTSIZE
 HISTTIMEFORMAT='%t%F %T%t'
+history_counter=0
 
 update_eternal_history() {
+    ((history_counter++ == 0)) && return
     local old_umask=$(umask)
     local history_line="${USER}\t${HOSTNAME}\t${PWD}\t$(history 1)"
     local history_sink=$(readlink ~/.bash-ssh.history 2>/dev/null)
