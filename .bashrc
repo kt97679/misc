@@ -3,7 +3,6 @@
 [ -n "$SSH_TTY" ] && {
     export SHELL="$HOME/.bash-ssh" && chmod +x "$SHELL"
     [ "${BASH_SOURCE[0]}" == "${0}" ] && exec bash --rcfile "$SHELL" "$@"
-    ln -nsf /dev/tcp/127.0.0.1/$history_port ~/.bash-ssh.history
 }
 
 [ -z "$PS1" ] && return
@@ -25,8 +24,9 @@ HISTTIMEFORMAT='%t%F %T%t'
 update_eternal_history() {
     local old_umask=$(umask)
     local history_line="${USER}\t${HOSTNAME}\t${PWD}\t$(history 1)"
+    local history_sink=$(readlink ~/.bash-ssh.history 2>/dev/null)
     history -a
-    [ -n "$SSH_TTY" ] && echo -e "$history_line" >$(readlink ~/.bash-ssh.history) 2>/dev/null && return
+    [ -n "$history_sink" ] && echo -e "$history_line" >"$history_sink" 2>/dev/null && return
     umask 077
     echo -e "$history_line" >> ~/.bash_eternal_history
     umask $old_umask
@@ -45,11 +45,11 @@ alias mv="mv -i"
 bak() { cp $1 $1.$(date +%%F_%T); }
 doh() { curl -s -H 'accept: application/dns+json' "https://dns.google.com/resolve?name=$1" | jq; }
 sshb() {
-    local bashrc=$(base64 -w0 <~/.bashrc)
     local ssh="ssh -S ~/.ssh/control-socket-$(tr -cd '[:alnum:]' < /dev/urandom|head -c8)"
     $ssh -fNM "$@"
     local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
-    $ssh "$@" -t "history_port=$history_remote_port bash --rcfile <(echo $bashrc|base64 -d|tee ~/.bash-ssh) -i"
+    $ssh placeholder "cat >~/.bash-ssh;ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" <~/.bashrc
+    $ssh "$@" -t "bash --rcfile ~/.bash-ssh -i"
     $ssh placeholder -O exit >/dev/null 2>&1
 }
 
