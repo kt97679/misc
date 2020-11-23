@@ -46,8 +46,10 @@ doh() { curl -s -H 'accept: application/dns+json' "https://dns.google.com/resolv
 sshb() {
     local ssh="ssh -S ~/.ssh/control-socket-$(tr -cd '[:alnum:]' < /dev/urandom|head -c8)"
     $ssh -fNM "$@"
+    local bashrc=~/.bashrc
+    [ -r ~/.bash-ssh ] && bashrc=~/.bash-ssh && history_port=$(basename $(readlink ~/.bash-ssh.history))
     local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
-    $ssh placeholder "cat >~/.bash-ssh; ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" <~/.bashrc
+    $ssh placeholder "cat >~/.bash-ssh; ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" < $bashrc
     $ssh "$@" -t 'SHELL=~/.bash-ssh; chmod +x $SHELL; bash --rcfile $SHELL -i'
     $ssh placeholder -O exit >/dev/null 2>&1
 }
