@@ -8,12 +8,12 @@
 [ -z "$PS1" ] && return
 
 [ -r /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
+[ -d "$HOME/bin" ] && [[ ":$PATH:" != *":$HOME/bin:"* ]] && PATH="$HOME/bin:$PATH"
 
 [ -z "$SSH_TTY" ] && {
     history_port=26574
     netstat -lnt|grep -q ":${history_port}\b" || {
-        touch ~/.bash_eternal_history && chmod 0600 ~/.bash_eternal_history
-        nc -kl 127.0.0.1 "$history_port" >>~/.bash_eternal_history &
+        umask 077 && nc -kl 127.0.0.1 "$history_port" >>~/.bash_eternal_history &
     }
 }
 
@@ -55,10 +55,6 @@ sshb() {
     $ssh placeholder -O exit >/dev/null 2>&1
 }
 
-export EDITOR=vim
-
-[ -d "$HOME/bin" ] && [[ ":$PATH:" != *":$HOME/bin:"* ]] && PATH="$HOME/bin:$PATH"
-
 type -f rbenv >/dev/null 2>&1 && eval "$(rbenv init -)"
 type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
 
@@ -69,4 +65,5 @@ type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
 }
 [ -r ~/.byobu/prompt ] && . ~/.byobu/prompt
 
+export EDITOR=vim
 export DOCKER_HOST=unix:///var/run/docker.sock
