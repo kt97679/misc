@@ -1,9 +1,6 @@
 #!/bin/bash
 
-[ -n "$SSH_TTY" ] && {
-    export SHELL="$HOME/.bash-ssh" && chmod +x "$SHELL"
-    [ "${BASH_SOURCE[0]}" == "${0}" ] && exec bash --rcfile "$SHELL" "$@"
-}
+[ -n "$SSH_TTY" ] && [ "${BASH_SOURCE[0]}" == "${0}" ] && exec bash --rcfile "$SHELL" "$@"
 
 [ -z "$PS1" ] && return
 
@@ -34,7 +31,7 @@ update_eternal_history() {
     umask $old_umask
 }
 
-[[ "$PROMPT_COMMAND" == *update_eternal_history* ]] || export PROMPT_COMMAND="update_eternal_history;$PROMPT_COMMAND"
+[[ "$PROMPT_COMMAND" == *update_eternal_history* ]] || PROMPT_COMMAND="update_eternal_history;$PROMPT_COMMAND"
 
 alias c=cat
 alias h='history $((LINES - 1))'
@@ -50,8 +47,8 @@ sshb() {
     local ssh="ssh -S ~/.ssh/control-socket-$(tr -cd '[:alnum:]' < /dev/urandom|head -c8)"
     $ssh -fNM "$@"
     local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
-    $ssh placeholder "cat >~/.bash-ssh;ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" <~/.bashrc
-    $ssh "$@" -t "bash --rcfile ~/.bash-ssh -i"
+    $ssh placeholder "cat >~/.bash-ssh; ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" <~/.bashrc
+    $ssh "$@" -t 'SHELL=~/.bash-ssh; chmod +x $SHELL; bash --rcfile $SHELL -i'
     $ssh placeholder -O exit >/dev/null 2>&1
 }
 
