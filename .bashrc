@@ -7,10 +7,10 @@
 [ -r /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
 [ -d "$HOME/bin" ] && [[ ":$PATH:" != *":$HOME/bin:"* ]] && PATH="$HOME/bin:$PATH"
 
-[ -z "$SSH_TTY" ] && {
+[ -z "$SSH_TTY" ] && command -v socat >/dev/null && {
     history_port=26574
     netstat -lnt|grep -q ":${history_port}\b" || {
-        umask 077 && nc -kl 127.0.0.1 "$history_port" >>~/.bash_eternal_history &
+        umask 077 && socat -u TCP4-LISTEN:$history_port,bind=127.0.0.1,reuseaddr,fork OPEN:$HOME/.bash_eternal_history,creat,append &
     }
 }
 
@@ -45,11 +45,15 @@ bak() { cp $1 $1.$(date +%%F_%T); }
 doh() { curl -s -H 'accept: application/dns+json' "https://dns.google.com/resolve?name=$1" | jq; }
 sshb() {
     local ssh="ssh -S ~/.ssh/control-socket-$(tr -cd '[:alnum:]' < /dev/urandom|head -c8)"
-    $ssh -fNM "$@"
     local bashrc=~/.bashrc
-    [ -r ~/.bash-ssh ] && bashrc=~/.bash-ssh && history_port=$(basename $(readlink ~/.bash-ssh.history))
-    local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
-    $ssh placeholder "cat >~/.bash-ssh; ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history" < $bashrc
+    local history_command="rm -f ~/.bash-ssh.history"
+    [ -r ~/.bash-ssh ] && bashrc=~/.bash-ssh && history_port=$(basename $(readlink ~/.bash-ssh.history 2>/dev/null))
+    $ssh -fNM "$@"
+    [ -n "$history_port" ] && {
+        local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
+        history_command="ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history"
+    }
+    $ssh placeholder "${history_command}; cat >~/.bash-ssh" < $bashrc
     $ssh "$@" -t 'SHELL=~/.bash-ssh; chmod +x $SHELL; bash --rcfile $SHELL -i'
     $ssh placeholder -O exit >/dev/null 2>&1
 }
