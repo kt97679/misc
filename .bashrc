@@ -4,6 +4,7 @@
 
 [ -z "$PS1" ] && return
 
+((SHLVL == 1)) && [ -r /etc/profile ] && . /etc/profile
 [ -r /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
 [ -d "$HOME/bin" ] && [[ ":$PATH:" != *":$HOME/bin:"* ]] && PATH="$HOME/bin:$PATH"
 
@@ -54,7 +55,7 @@ sshb() {
         history_command="ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history"
     }
     $ssh placeholder "${history_command}; cat >~/.bash-ssh" < $bashrc
-    $ssh "$@" -t 'SHELL=~/.bash-ssh; chmod +x $SHELL; bash --rcfile $SHELL -i'
+    $ssh "$@" -t 'SHELL=~/.bash-ssh; chmod +x $SHELL; exec bash --rcfile $SHELL -i'
     $ssh placeholder -O exit >/dev/null 2>&1
 }
 
