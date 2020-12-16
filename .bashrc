@@ -20,7 +20,7 @@ HISTFILESIZE=$HISTSIZE
 HISTTIMEFORMAT='%t%F %T%t'
 
 update_eternal_history() {
-    local histfile_size=$(stat -c %s $HISTFILE)
+    local histfile_size=$(umask 077 && touch $HISTFILE && stat -c %s $HISTFILE)
     history -a
     ((histfile_size == $(stat -c %s $HISTFILE))) && return
     local history_line="${USER}\t${HOSTNAME}\t${PWD}\t$(history 1)"
