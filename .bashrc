@@ -49,7 +49,7 @@ sshb() {
     local bashrc=~/.bashrc
     local history_command="rm -f ~/.bash-ssh.history"
     [ -r ~/.bash-ssh ] && bashrc=~/.bash-ssh && history_port=$(basename $(readlink ~/.bash-ssh.history 2>/dev/null))
-    $ssh -fNM "$@"
+    $ssh -fNM "$@" || return $?
     [ -n "$history_port" ] && {
         local history_remote_port="$($ssh -O forward -R 0:127.0.0.1:$history_port placeholder)"
         history_command="ln -nsf /dev/tcp/127.0.0.1/$history_remote_port ~/.bash-ssh.history"
