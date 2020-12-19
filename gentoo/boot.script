@@ -1,6 +1,6 @@
 # compile new boot.scr using following command
 # mkimage -A arm -O linux -T script -C none -a 0 -e 0 -n Boot-Script -d boot.script boot.scr
-setenv bootargs 'console=ttyS0,115200 root=/dev/mmcblk0p1 rw rootwait'
+setenv bootargs 'console=ttyS0,115200 root=/dev/mmcblk1p1 rw rootwait'
 #setenv bootargs 'console=ttyS0,115200 root=/dev/sda1 rw rootwait'
 load ${devtype} ${devnum}:1 ${kernel_addr_r}  /boot/zImage
 load ${devtype} ${devnum}:1 ${fdt_addr_r}     /boot/tegra124-jetson-tk1.dtb
