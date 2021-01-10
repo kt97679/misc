@@ -28,7 +28,7 @@ cd /usr/src/linux
 zcat /proc/config.gz > /usr/src/linux/.config
 # if new kernel options were added we use default settings
 make olddefconfig && make -j $cpu_cores
-make modules_install
+make INSTALL_MOD_STRIP=1 modules_install
 ln -f /boot/zImage /boot/zImage.old
 cp arch/arm/boot/zImage /boot/zImage.new
 mv /boot/zImage.new /boot/zImage
