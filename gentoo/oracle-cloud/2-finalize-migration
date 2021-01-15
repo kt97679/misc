@@ -1,0 +1,29 @@
+#!/bin/bash
+# without swap we will not be able to compile kernel
+fallocate -l2G /var/tmp/swap && chmod 0600 /var/tmp/swap && mkswap /var/tmp/swap && swapon /var/tmp/swap
+# systemd will not be used on this machine
+echo -e 'sys-apps/systemd\nsys-fs/udev'> /etc/portage/package.mask/systemd
+# let's install kernel sources and lz4 compressor
+emerge gentoo-sources app-arch/lz4
+cd /usr/src/linux
+# let's create kernel config based on the booted kernel...
+yes ""|make oldconfig
+# ... leave only loaded modules ...
+yes ""|make localmodconfig
+# ... and compile them into new kernel
+yes ""|make localyesconfig
+# build and install new kernel
+make && make INSTALL_MOD_STRIP=1 modules_install && make install
+# generate new grub config
+cat >/boot/grub/grub.cfg <<EOF
+set timeout=1
+menuentry 'gentoo' {
+  linux $(ls -t /boot/vmlinuz-*|head -n1) root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1
+}
+EOF
+# enable serial console
+sed -i -e 's/^#\(.*ttyS0.*\)/\1/' /etc/inittab
+# after reboot we will have eth0 instead of ens3
+cd /etc/init.d && rm net.ens3 && ln -s net.lo net.eth0
+# in case we will need to login via serial console let's set root password
+passwd
