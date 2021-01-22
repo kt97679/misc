@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# this script should be run localy
+# argument - address of the machine
+
+set -ue
+
+cat <<SCRIPT |ssh root@$1
+# let's remove remainings of the old system
+rm -rf /root/snap/ /snap/ /media/ /orig/ /srv/ /libx32 
+cd /home/
+# remove old users
+ls|xargs -d '\n' userdel -r
+# install some useful stuff
+USE=-ssl emerge rsyslog logrotate cronie sudo
+# enable and start services
+rc-update add busybox-ntpd
+/etc/init.d/busybox-ntpd start
+rc-update add cronie
+/etc/init.d/cronie start
+rc-update add rsyslog
+/etc/init.d/rsyslog start
+# add user
+useradd -m $LOGNAME
+# copy ssh keys from the root account
+cp -r /root/.ssh/ /home/$LOGNAME/
+# fix ownership
+chown -R $LOGNAME:$LOGNAME /home/$LOGNAME
+# configure sudo access
+echo '$LOGNAME ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/$LOGNAME
+chmod 0440 /etc/sudoers.d/$LOGNAME
+SCRIPT
