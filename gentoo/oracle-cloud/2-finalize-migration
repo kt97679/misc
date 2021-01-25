@@ -1,4 +1,15 @@
 #!/bin/bash
+
+set -ue
+
+read -sp "enter password: " new_password
+echo
+read -sp "confirm password: "
+echo
+
+[ "$new_password" != "$REPLY" ] && echo "password not confirmed" && exit
+
+cat <<SCRIPT | ssh root@$1 /bin/bash
 # without swap we will not be able to compile kernel
 fallocate -l2G /var/tmp/swap && chmod 0600 /var/tmp/swap && mkswap /var/tmp/swap && swapon /var/tmp/swap
 # systemd will not be used on this machine
@@ -18,7 +29,7 @@ make && make INSTALL_MOD_STRIP=1 modules_install && make install
 cat >/boot/grub/grub.cfg <<EOF
 set timeout=1
 menuentry 'gentoo' {
-  linux $(ls -t /boot/vmlinuz-*|head -n1) root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1
+  linux \$(ls -t /boot/vmlinuz-*|head -n1) root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1
 }
 EOF
 # enable serial console
@@ -26,4 +37,7 @@ sed -i -e 's/^#\(.*ttyS0.*\)/\1/' /etc/inittab
 # after reboot we will have eth0 instead of ens3
 cd /etc/init.d && rm net.ens3 && ln -s net.lo net.eth0
 # in case we will need to login via serial console let's set root password
-passwd
+echo "root:$new_password"|chpasswd
+sync
+reboot
+SCRIPT

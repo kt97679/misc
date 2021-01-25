@@ -10,7 +10,7 @@ cat <<SCRIPT |ssh root@$1
 rm -rf /root/snap/ /snap/ /media/ /orig/ /srv/ /libx32 
 cd /home/
 # remove old users
-ls|xargs -d '\n' userdel -r
+ls|xargs -n1 userdel -r
 # install some useful stuff
 USE=-ssl emerge rsyslog logrotate cronie sudo
 # enable and start services

@@ -1,0 +1,166 @@
+#!/bin/bash
+
+# simplified version of the https://github.com/oglueck/to-gentoo/blob/master/to-gentoo
+
+# Converts a random Linux installation to Gentoo
+
+# crash early
+set -ue
+
+export LANG=C
+
+# see https://www.gentoo.org/downloads/mirrors/
+#MIRROR="http://distfiles.gentoo.org/"
+MIRROR="http://mirror.leaseweb.com/gentoo/"
+GENTOO="/gentoo"
+OLD="/orig"
+
+# check preconditions
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "Only Linux can be converted. Your system is $(uname -s)." >&2
+  exit 1
+fi
+
+if [ "$(uname -m)" != "x86_64" ]; then
+  echo "Only x86_64 is supported. Your system is $(uname -m)." >&2
+  exit 1
+fi
+
+if [ "$(whoami)" != "root" ]; then
+  echo "The script needs to be run as root. You are $(whoami)." >&2
+  exit 1
+fi
+
+for f in sed tar wget tar grep awk bash; do
+  which "${f}" >/dev/null || {
+    echo "${f} missing. Please install." >&2
+    exit 1
+  }
+done
+
+for f in sed tar grep awk bash; do
+  if [ "$(basename $(readlink -f $(which ${f})))" = "busybox" ]; then
+    echo "binary $(which $f) is from BusyBox, please install the real (GNU) version" >&2
+    exit 1
+  fi
+done
+
+RUNLEVEL=""
+which runlevel &>/dev/null && RUNLEVEL="$(runlevel | cut -d ' ' -f 2)"
+if [ -z "${RUNLEVEL}" ]; then
+  which rc-status &>/dev/null && RUNLEVEL="$(rc-status -r)"
+fi
+case "${RUNLEVEL}" in
+  S | unknown | single | 1)
+    ;;
+
+  *)
+    echo "Please run this script from single-user mode: init s or openrc single or append single to kernel cmd line" >&2
+    exit 1
+  ;;
+esac
+
+FREE=$(df -m / | sed '1d' | awk '{ print $4; }')
+MIN=8000
+if [ "${FREE}" -lt "${MIN}" ]; then
+  echo "No enough free disk space. Need ${MIN}K, there is only ${FREE}K" >&2
+  exit 1
+fi
+
+STAGE3=$(wget -qO- "${MIRROR}releases/amd64/autobuilds/latest-stage3-amd64.txt" | sed '/^#/d' | cut -d ' ' -f 1)
+if [ -z "${STAGE3}" ]; then
+  echo "Is the network up?" >&2
+  exit 1
+fi
+
+echo "Installing Gentoo base system into ${GENTOO}. Old system will be moved to ${OLD}."
+mkdir "${GENTOO}"
+mkdir "${OLD}"
+cd "${GENTOO}"
+
+echo "Downloading ${STAGE3}..."
+# FIXME BusyBox tar has no --xattrs
+wget -qO- "${MIRROR}releases/amd64/autobuilds/${STAGE3}"|tar xJpf - --xattrs
+
+echo "Copying stuff from existing system:"
+# root password
+echo " - root password"
+sed -i '/^root:/ d' etc/shadow
+grep ^root: /etc/shadow >>etc/shadow
+# extra users and groups
+awk -F: '$3 > 999 && $3 < 65000 { print $0; }' /etc/passwd >>etc/passwd
+awk -F: '$3 > 999 && $3 < 65000 { print $0; }' /etc/group >>etc/group
+awk -F: '$3 > 999 && $3 < 65000 { print $1; }' /etc/passwd | while read N; do
+  echo " - user ${N}"
+  grep "^${N}:" /etc/shadow >>etc/shadow
+done
+echo " - /usr/local"
+cp -ra /usr/local/* usr/local/ || true
+echo " - SSH keys"
+cp -a /etc/ssh/*key* etc/ssh || true
+echo " - kernel modules"
+cp -ra /lib/modules lib/ || true
+echo " - firmware"
+cp -ra /lib/firmware lib/ || true
+echo " - hostname"
+echo "hostname=$(hostname)" >etc/conf.d/hostname
+cp /etc/hosts etc/
+
+echo "Preparing chroot env"
+cp -L "/etc/resolv.conf" etc/ || cp -L /etc/resolv.conf etc/
+cp -L "/etc/localtime" etc/ || cp -L /etc/localtime etc/
+cp -L "/etc/fstab" etc/ || cp -L /etc/fstab etc/
+
+
+cp $GENTOO/bin/busybox /tmp
+MYMV="/tmp/busybox mv"
+
+echo "Now switching over your installation!"
+DIRS="etc lib lib32 lib64 var usr sbin bin"
+cd /
+
+# FIXME deal with systems that mount /var/run tmpfs
+
+echo "moving to ${OLD}/:"
+[ -e /linuxrc ] && mv /linuxrc "${OLD}/"
+for d in ${DIRS}; do
+  echo " - ${d}"
+  [ -e "${d}" ] && ${MYMV} "${d}" "${OLD}/"
+done
+
+echo "replacing with Gentoo:"
+for d in ${DIRS}; do
+  echo " - ${d}"
+  [ -d "${GENTOO}/${d}" ] && /tmp/busybox rm -f "./${d}" && ${MYMV} "${GENTOO}/${d}" .
+done
+
+source /etc/profile
+hash -r
+
+echo "Downloading Portage tree snapshot"
+mkdir -p /etc/portage/repos.conf
+cp /usr/share/portage/config/repos.conf /etc/portage/repos.conf/gentoo.conf
+emerge-webrsync
+emerge --sync
+rc-update add sshd default
+
+echo "Symlinking net.lo"
+ip link show up | awk '/^[0-9][0-9]?:/ && $2 != "lo:" { print $2; }' | cut -d: -f1 | while read f ; do
+  cd /etc/init.d/
+  echo " - ${f}"
+  ln -s net.lo net.${f}
+done
+
+echo "Cleaning up"
+rm -rf "/tmp/busybox"
+rm -rf "${GENTOO}"
+
+grep -q '^root:!' /etc/shadow && {
+  echo "root account is disabled. Gentoo uses root. Please set a password."
+  passwd
+}
+chsh -s /bin/bash
+
+echo "Your old system is in ${OLD}. Remove manually."
+echo "Keeping your kernel and /boot. Please review..."
+echo "DONE! You should reboot now."

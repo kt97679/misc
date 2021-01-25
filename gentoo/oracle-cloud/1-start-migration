@@ -2,15 +2,21 @@
 
 # this script migrates ubuntu 20.04 to gentoo
 
+set -ue
+
+script_dir=$(dirname $(realpath $0))
+
+cat <<SCRIPT | ssh ubuntu@$1 sudo /bin/bash
 # switch to single mode
 systemctl rescue
 # ensure dns works
 rm /etc/resolv.conf && echo 'nameserver 8.8.8.8' >/etc/resolv.conf
 # run migration script
-wget -qO- https://raw.githubusercontent.com/kt97679/to-gentoo/master/to-gentoo|bash
+$(cat $script_dir/to-gentoo)
 # enable root ssh logins
 sed -i -e '/^PermitRootLogin.*/d' /etc/ssh/sshd_config && echo -e "\nPermitRootLogin without-password" >>/etc/ssh/sshd_config
 # fix root authorized keys
 sed -i -e 's/.*\(ssh-rsa.*\)/\1/' /root/.ssh/authorized_keys
 # reboot
 sync && echo 1 > /proc/sys/kernel/sysrq && echo b > /proc/sysrq-trigger
+SCRIPT
