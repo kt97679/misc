@@ -41,7 +41,7 @@ printf "%s\n" > /boot/grub/grub.cfg.new \
     "terminal_input serial" \
     "terminal_output serial" \
     "set timeout=5"
-for file in $(ls -t /boot/vmlinuz-*); do
+for file in $(ls -t /boot/vmlinuz-*i|grep -v "$(uname -r)$"); do
     printf "%s\n" \
         "menuentry '$file' {" \
         "  linux $file root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1" \
@@ -49,3 +49,4 @@ for file in $(ls -t /boot/vmlinuz-*); do
 done >> /boot/grub/grub.cfg.new
 cp /boot/grub/grub.cfg /boot/grub/grub.cfg.prev
 mv /boot/grub/grub.cfg.new /boot/grub/grub.cfg
+rm -f /boot/*-$(uname -r)
