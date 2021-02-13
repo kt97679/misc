@@ -30,7 +30,7 @@ zcat /proc/config.gz > /usr/src/linux/.config
 make olddefconfig && make -j $cpu_cores
 grep -q "BOOT_IMAGE=[^ ]*[.]prev" /proc/cmdline || {
     rm -f /boot/*.prev
-    for file in /boot/*-$(uname -r); do
+    files=$(ls /boot/*-$(uname -r)) && for file in $files; do
         cp $file ${file}.prev
     done
 }
@@ -41,7 +41,7 @@ printf "%s\n" > /boot/grub/grub.cfg.new \
     "terminal_input serial" \
     "terminal_output serial" \
     "set timeout=5"
-for file in $(ls -t /boot/vmlinuz-*i|grep -v "$(uname -r)$"); do
+files=$(ls -t /boot/vmlinuz-*|grep -v "$(uname -r)$") && for file in $files; do
     printf "%s\n" \
         "menuentry '$file' {" \
         "  linux $file root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1" \
