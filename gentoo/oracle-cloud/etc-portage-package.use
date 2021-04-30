@@ -1,0 +1,6 @@
+app-admin/sudo -sendmail
+sys-apps/shadow -cracklib
+dev-libs/libxml2 python
+app-crypt/gnupg -smartcard
+dev-vcs/git -cgi -highlight -mediawiki -mediawiki-experimental -ppcsha1 -subversion -tk -xinetd -perl
+app-admin/rsyslog -ssl -gcrypt
