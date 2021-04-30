@@ -2,7 +2,7 @@
 
 set -ue
 
-((UID != 0)) && exec sudo $0
+((UID != 0)) && exec sudo -E $0
 
 exec &> >(tee /tmp/$(basename $0).log)
 
