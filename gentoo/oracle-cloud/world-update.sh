@@ -21,6 +21,12 @@ usr_src_linux_old=$(readlink -f /usr/src/linux)
 eselect kernel set 1
 usr_src_linux_new=$(readlink -f /usr/src/linux)
 [ "$usr_src_linux_old" == "$usr_src_linux_new" ] && exit
+grep -q "BOOT_IMAGE=[^ ]*[.]prev" /proc/cmdline || {
+    rm -f /boot/*.prev
+    for file in /boot/*-$(uname -r); do
+        [ -f "$file" ] && cp $file ${file}.prev
+    done
+}
 # symlink was updated, let's remove old sources (if any) and build new kernel
 [ -n "$usr_src_linux_old" ] && rm -rf "$usr_src_linux_old"
 cd /usr/src/linux
@@ -28,12 +34,6 @@ cd /usr/src/linux
 zcat /proc/config.gz > /usr/src/linux/.config
 # if new kernel options were added we use default settings
 make olddefconfig && make -j $cpu_cores
-grep -q "BOOT_IMAGE=[^ ]*[.]prev" /proc/cmdline || {
-    rm -f /boot/*.prev
-    for file in /boot/*-$(uname -r); do
-        [ -f "$file" ] && cp $file ${file}.prev
-    done
-}
 make install
 rm -f /boot/*.old
 printf "%s\n" > /boot/grub/grub.cfg.new \
@@ -41,10 +41,10 @@ printf "%s\n" > /boot/grub/grub.cfg.new \
     "terminal_input serial" \
     "terminal_output serial" \
     "set timeout=5"
-for file in $(ls -t /boot/vmlinuz-*|grep -v "$(uname -r)$"); do
+for file in $(cd /boot && ls -t vmlinuz-*|grep -v "$(uname -r)$"); do
     printf "%s\n" \
         "menuentry '$file' {" \
-        "  linux $file root=/dev/sda1 console=tty1 console=ttyS0 nvme.shutdown_timeout=10 libiscsi.debug_libiscsi_eh=1" \
+        "  linux $(sed -e "s/BOOT_IMAGE=[^ ]*/\/$file/" /proc/cmdline)" \
         "}"
 done >> /boot/grub/grub.cfg.new
 cp /boot/grub/grub.cfg /boot/grub/grub.cfg.prev
