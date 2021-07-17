@@ -44,7 +44,7 @@ printf "%s\n" > /boot/grub/grub.cfg.new \
 for file in $(cd /boot && ls -t vmlinuz-*|grep -v "$(uname -r)$"); do
     printf "%s\n" \
         "menuentry '$file' {" \
-        "  linux $(sed -e "s/BOOT_IMAGE=[^ ]*/\/$file/" /proc/cmdline)" \
+        "  linux $(sed -e "s/BOOT_IMAGE=//" -e "s/vmlinuz-[^ ]*/$file/" /proc/cmdline)" \
         "}"
 done >> /boot/grub/grub.cfg.new
 cp /boot/grub/grub.cfg /boot/grub/grub.cfg.prev
