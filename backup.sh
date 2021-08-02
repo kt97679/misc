@@ -60,6 +60,8 @@ while true; do
     # we keep last 5 backups for each host
     # directories archive and lost+found are ignored
     # after oldest backup is deleted we retry backup
-    ls -dt $WORK_DIR/*/*|grep -vP "$WORK_DIR/(archive|lost.found)"|grep -v -f <(for x in $WORK_DIR/*; do [ -d $x ] && ls -dt $x/*|head -n5; done)|tail -n1|xargs rm -rf
+    dirs2rm=$(ls -dt $WORK_DIR/*/*|grep -vP "$WORK_DIR/(archive|lost.found)"|grep -v -f <(for x in $WORK_DIR/*; do [ -d $x ] && ls -dt $x/*|head -n5; done)|tail -n1)
+    echo "Deleting $dirs2rm"
+    rm -rf $dirs2rm
 done
 mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)/
