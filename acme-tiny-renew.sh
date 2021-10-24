@@ -24,7 +24,8 @@ renew_domain() {
     local new_fullchain_pem="${new_domain_dir}/fullchain.pem"
     local new_privkey_pem="${new_domain_dir}/privkey.pem"
     local new_domain_csr="${new_domain_dir}/domain.csr"
-    local not_after_seconds=$(date -d \
+    local not_after_seconds=0
+    [ -f "$fullchain_pem" ] && not_after_seconds=$(date -d \
             "$(openssl x509 -in "$fullchain_pem" -noout -dates | grep -oP "^notAfter=\K.*")" \
         +%s)
     $check_expiration && ((not_after_seconds - now_seconds > 7 * seconds_per_day)) && return
@@ -40,13 +41,18 @@ renew_domain() {
 }
 
 usage() {
-    echo "Usage: $0 [-f]"
+    echo "Usage: $0 [-f] [-d domain_name]"
     exit 1
 }
 
+mkdir -p $base_dir
+[ -f "$account_key" ] || openssl genrsa 4096 > "$account_key"
+
+new_domains=()
 while (( $# )); do
     case ${1:-} in
         -f) check_expiration=false ;;
+        -d) new_domains+=($2) && shift ;;
 	*) echo "Error: unknown option \"$1\"" && usage ;;
     esac
     shift
@@ -56,6 +62,10 @@ cd $base_dir
 
 for domain in *; do
     [ -L $domain ] || continue
+    renew_domain $domain
+done
+
+for domain in ${new_domains[*]}; do
     renew_domain $domain
 done
 
