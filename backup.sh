@@ -53,7 +53,7 @@ ls -dt ${WORK_DIR}/${HOST}/* | tail -n +${BACKUP_NUM} | xargs rm -rf
 [ -n "$previous" ] && rsync_options+=" --link-dest=$previous"
 
 while true; do
-    rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest
+    rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest || :
     avail=$(df --output=avail $WORK_DIR|tail -n 1)
     ((avail > MIN_FREE_SPACE)) && break
     # if free space on the backup storage is less than MIN_FREE_SPACE we find oldest backup and delete it
