@@ -18,6 +18,7 @@
 HISTSIZE=$((1024 * 1024))
 HISTFILESIZE=$HISTSIZE
 HISTTIMEFORMAT='%t%F %T%t'
+HISTCONTROL=ignoreboth
 
 update_eternal_history() {
     local histfile_size=$(umask 077 && touch $HISTFILE && stat -c %s $HISTFILE)
