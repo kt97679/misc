@@ -31,6 +31,6 @@ __dbg__trap() {
 }
 
 set -T
-trap "__dbg__trap" debug
+trap "__dbg__trap >/dev/tty" debug
 
 . "$@"
