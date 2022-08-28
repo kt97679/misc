@@ -18,6 +18,8 @@ __dbg_commands() {
     echo "  bdb> trace          toggle tracing mode [default: off]"
     echo "  bdb> bl             display breakpoint list"
     echo "  bdb> ba <expr>      add new breakpoint: pause when <expr> is true"
+    echo "  bdb> bal <n>        add new breakpoint: pause at line number <n>"
+    echo "  bdb> bae <n>        add new breakpoint: pause at every <n> lines"
     echo "  bdb> bd <n>         remove the breakpoint number <n> (as in 'ba' command)"
     echo "  bdb> <command>      run the arbitrary shell command; useful for checking variable values etc."
 }
@@ -48,6 +50,8 @@ __dbg__trap() {
                 bl) printf "%s\n" "${__dbg__breakpoints[@]}" \
                     | grep . | cat -n ;;
                 ba) __dbg__breakpoints+=("$__dbg__cmd_args") ;;
+                bal) __dbg__breakpoints+=("(( BASH_LINENO == $__dbg__cmd_args ))") ;;
+                bae) __dbg__breakpoints+=("(( BASH_LINENO % $__dbg__cmd_args == 0 ))") ;;
                 bd) unset __dbg__breakpoints[$((__dbg__cmd_args - 1))] \
                     && __dbg__breakpoints=("${__dbg__breakpoints[@]}") ;;
                 *) eval "$__dbg__cmd $__dbg__cmd_args" ;;
