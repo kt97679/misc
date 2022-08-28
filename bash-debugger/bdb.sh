@@ -3,6 +3,25 @@
 
 _e() { echo $'\e['"${1:-}"m ; }
 
+__dbg__usage() {
+    echo "bdb <command> [<command_args>...]"
+    echo
+    echo "Interactive bash script debugger."
+    echo "Runs the <command> with <command_args> and can trace execution steps and/or pause at set breakpoints."
+    echo
+    echo "Commands:"
+    __dbg_commands
+    echo
+}
+__dbg_commands() {
+    echo "  bdb> help           display command list"
+    echo "  bdb> trace          toggle tracing mode [default: off]"
+    echo "  bdb> bl             display breakpoint list"
+    echo "  bdb> ba <expr>      add new breakpoint: pause when <expr> is true"
+    echo "  bdb> bd <n>         remove the breakpoint number <n> (as in 'ba' command)"
+    echo "  bdb> <command>      run the arbitrary shell command; useful for checking variable values etc."
+}
+
 __dbg__breakpoints=()
 __dbg__trace=2
 __dbg__trap() {
@@ -24,6 +43,7 @@ __dbg__trap() {
         while read -p "$(_e 34)bdb> $(_e)"  __dbg__cmd __dbg__cmd_args; do
             case $__dbg__cmd in
                 '') eval "$__dbg__set" && return 0 ;;
+                help) __dbg_commands ;;
                 trace) ((__dbg__trace ^= 1)) ;;
                 bl) printf "%s\n" "${__dbg__breakpoints[@]}" \
                     | grep . | cat -n ;;
@@ -36,7 +56,8 @@ __dbg__trap() {
     }
 }
 
-set -T
-trap "__dbg__trap >/dev/tty" debug
-
-. "$@"
+if [[ $1 =~ ^--?h(elp)? ]] ; then __dbg__usage ; else
+    set -T
+    trap "__dbg__trap >/dev/tty" debug
+     . "$@"
+fi
