@@ -17,11 +17,13 @@ __dbg_commands() {
     echo "  bdb> help           display command list"
     echo "  bdb> trace          toggle tracing mode [default: off]"
     echo "  bdb> bl             display breakpoint list"
-    echo "  bdb> ba <expr>      add new breakpoint: pause when <expr> is true"
+    echo "  bdb> ba <expr>      add new breakpoint: pause if <expr> is true, checked every line of code"
     echo "  bdb> bal <n>        add new breakpoint: pause at line number <n>"
     echo "  bdb> bae <n>        add new breakpoint: pause at every <n> lines"
-    echo "  bdb> bd <n>         remove the breakpoint number <n> (as in 'ba' command)"
+    echo "  bdb> bd <n>         remove the breakpoint number <n> (as in 'bl' command)"
     echo "  bdb> <command>      run the arbitrary shell command; useful for checking variable values etc."
+    echo
+    echo "Hint: Use ^D instead of Enter to continue the execution."
 }
 
 __dbg__breakpoints=()
