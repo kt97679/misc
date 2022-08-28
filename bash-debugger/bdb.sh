@@ -28,10 +28,12 @@ __dbg_commands() {
 
 __dbg__breakpoints=()
 __dbg__trace=2
+__dbg__trap_count=0
 __dbg__trap() {
     local __dbg__cmd __dbg__cmd_args __dbg__set="$(set +o)" \
         __dbg__do_break=false
     set +eu
+    ((__dbg__trap_count++))
 
     for __dbg__breakpoint_num in $(seq ${#__dbg__breakpoints[@]}); do
         __dbg__breakpoint_idx=$((__dbg__breakpoint_num - 1))
@@ -53,7 +55,7 @@ __dbg__trap() {
                     | grep . | cat -n ;;
                 ba) __dbg__breakpoints+=("$__dbg__cmd_args") ;;
                 bal) __dbg__breakpoints+=("(( BASH_LINENO == $__dbg__cmd_args ))") ;;
-                bae) __dbg__breakpoints+=("(( BASH_LINENO % $__dbg__cmd_args == 0 ))") ;;
+                bae) __dbg__breakpoints+=("(( __dbg__trap_count % $__dbg__cmd_args == 0 ))") ;;
                 bd) unset __dbg__breakpoints[$((__dbg__cmd_args - 1))] \
                     && __dbg__breakpoints=("${__dbg__breakpoints[@]}") ;;
                 *) eval "$__dbg__cmd $__dbg__cmd_args" ;;
