@@ -14,8 +14,8 @@ __dbg__usage() {
     echo
 }
 __dbg__commands() {
-    echo "  bdb> help           display command list"
-    echo "  bdb> trace          toggle tracing mode [default: off]"
+    echo "  bdb> h[elp]         display command list"
+    echo "  bdb> t[race]        toggle tracing mode [default: off]"
     echo "  bdb> bl             display breakpoint list"
     echo "  bdb> ba <expr>      add new breakpoint: pause if <expr> is true, checked every line of code"
     echo "  bdb> bal <n>        add new breakpoint: pause at line number <n>"
@@ -49,8 +49,8 @@ __dbg__trap() {
         while read -p "$(_e 34)bdb> $(_e)"  __dbg__cmd __dbg__cmd_args; do
             case $__dbg__cmd in
                 '') eval "$__dbg__set" && return 0 ;;
-                help) __dbg__commands ;;
-                trace) ((__dbg__trace ^= 1)) ;;
+                h|help) __dbg__commands ;;
+                t|trace) ((__dbg__trace ^= 1)) ;;
                 bl) printf "%s\n" "${__dbg__breakpoints[@]}" \
                     | grep . | cat -n ;;
                 ba) __dbg__breakpoints+=("$__dbg__cmd_args") ;;
