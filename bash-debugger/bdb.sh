@@ -10,10 +10,10 @@ __dbg__usage() {
     echo "Runs the <command> with <command_args> and can trace execution steps and/or pause at set breakpoints."
     echo
     echo "Commands:"
-    __dbg_commands
+    __dbg__commands
     echo
 }
-__dbg_commands() {
+__dbg__commands() {
     echo "  bdb> help           display command list"
     echo "  bdb> trace          toggle tracing mode [default: off]"
     echo "  bdb> bl             display breakpoint list"
@@ -31,7 +31,7 @@ __dbg__trace=2
 __dbg__trap_count=0
 __dbg__trap() {
     local __dbg__cmd __dbg__cmd_args __dbg__set="$(set +o)" \
-        __dbg__do_break=false
+        __dbg__do_break=false __dbg__breakpoint_num __dbg__breakpoint_idx
     set +eu
     ((__dbg__trap_count++))
 
@@ -49,7 +49,7 @@ __dbg__trap() {
         while read -p "$(_e 34)bdb> $(_e)"  __dbg__cmd __dbg__cmd_args; do
             case $__dbg__cmd in
                 '') eval "$__dbg__set" && return 0 ;;
-                help) __dbg_commands ;;
+                help) __dbg__commands ;;
                 trace) ((__dbg__trace ^= 1)) ;;
                 bl) printf "%s\n" "${__dbg__breakpoints[@]}" \
                     | grep . | cat -n ;;
@@ -68,8 +68,7 @@ __dbg__trap() {
         && echo "$(_e 36)${BASH_SOURCE[1]}:$(_e 32)${BASH_LINENO[0]}:$(_e) $BASH_COMMAND"
 }
 
-if [[ $1 =~ ^--?h(elp)? ]] ; then __dbg__usage ; else
-    set -T
-    trap "__dbg__trap >/dev/tty" debug
-     . "$@"
-fi
+[[ $1 =~ ^--?h(elp)? || $# -eq 0 ]] && __dbg__usage && exit
+set -T
+trap "__dbg__trap >/dev/tty" debug
+. "$@"
