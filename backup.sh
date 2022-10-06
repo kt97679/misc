@@ -64,4 +64,17 @@ while true; do
     echo "Deleting $dirs2rm"
     rm -rf $dirs2rm
 done
-mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)/
+
+get_interval_label() {
+    local label timestamp now=$(date +%s) dir_name
+    declare -A interval_seconds=([monthly]=$((28*24*3600)) [weekly]=$((7*24*3600)) [daily]=$((24*3600)))
+    for label in monthly weekly daily; do
+        dir_name=$(ls -dt ${WORK_DIR}/${HOST}/*_${label} 2>/dev/null | head -n1)
+        timestamp=0
+        [ -n "$dir_name" ] && timestamp=$(date -d "$(basename $dir_name | sed -e 's/_[^_]*$//' -e 's/_/ /')" +%s)
+        ((now - timestamp > ${interval_seconds[$label]})) && echo -n $label && return
+    done
+    echo -n "hourly"
+}
+
+mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)_$(get_interval_label)/
