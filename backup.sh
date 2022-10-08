@@ -6,7 +6,7 @@ HOST=${1:-}
 
 ((UID != 0)) && exec sudo -E $0 $HOST
 
-BACKUP_NUM=999
+MIN_BACKUP_COUNT=24
 MIN_FREE_SPACE=$((1 * 1024 * 1024))
 WORK_DIR=$(dirname $(readlink -f $0))
 
@@ -49,20 +49,25 @@ get_lock /tmp/$(basename $0).$HOST.pid || {
 [ -f ${WORK_DIR}/${HOST}/.config ] && . ${WORK_DIR}/${HOST}/.config
 latest=${WORK_DIR}/${HOST}/latest/
 previous=$(ls -dt ${WORK_DIR}/${HOST}/* | head -n1)
-ls -dt ${WORK_DIR}/${HOST}/* | tail -n +${BACKUP_NUM} | xargs rm -rf
 [ -n "$previous" ] && rsync_options+=" --link-dest=$previous"
+
+cleanup_backups() {
+    local label label_count dir_to_delete
+    read label_count label < <(ls ${WORK_DIR}/${HOST}/ | cut -f3 -d_ | sort | uniq -c | sort -rn | head -n1)
+    ((label_count < MIN_BACKUP_COUNT)) && {
+        echo "Error: found $label_count backups with label \"$label\", need to keep at least $MIN_BACKUP_COUNT"
+        exit 1
+    }
+    dir_to_delete=$(ls -dt ${WORK_DIR}/${HOST}/* | grep -P "/[^/]*_?${label}$" | tail -n1)
+    echo "Cleanup: $dir_to_delete"
+    rm -rf "$dir_to_delete"
+}
 
 while true; do
     rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest || :
     avail=$(df --output=avail $WORK_DIR|tail -n 1)
     ((avail > MIN_FREE_SPACE)) && break
-    # if free space on the backup storage is less than MIN_FREE_SPACE we find oldest backup and delete it
-    # we keep last 5 backups for each host
-    # directories archive and lost+found are ignored
-    # after oldest backup is deleted we retry backup
-    dirs2rm=$(ls -dt $WORK_DIR/*/*|grep -vP "$WORK_DIR/(archive|lost.found)"|grep -v -f <(for x in $WORK_DIR/*; do [ -d $x ] && ls -dt $x/*|head -n5; done)|tail -n1)
-    echo "Deleting $dirs2rm"
-    rm -rf $dirs2rm
+    cleanup_backups
 done
 
 get_interval_label() {
