@@ -6,6 +6,13 @@ HOST=${1:-}
 
 ((UID != 0)) && exec sudo -E $0 $HOST
 
+# interval_label interval_duration_in_seconds interval_backup_count
+CONFIG=(
+    "hourly 3600 168"
+    "daily 86400 180"
+    "weekly 604800 104"
+    "monthly 2419200 52"
+)
 MIN_BACKUP_COUNT=24
 MIN_FREE_SPACE=$((1 * 1024 * 1024))
 WORK_DIR=$(dirname $(readlink -f $0))
@@ -48,7 +55,7 @@ get_lock /tmp/$(basename $0).$HOST.pid || {
 
 [ -f ${WORK_DIR}/${HOST}/.config ] && . ${WORK_DIR}/${HOST}/.config
 latest=${WORK_DIR}/${HOST}/latest/
-previous=$(ls -dt ${WORK_DIR}/${HOST}/* | head -n1)
+previous=$(ls -dt ${WORK_DIR}/${HOST}/* | grep -v "/latest$" | head -n1)
 [ -n "$previous" ] && rsync_options+=" --link-dest=$previous"
 
 cleanup_backups() {
@@ -70,16 +77,22 @@ while true; do
     cleanup_backups
 done
 
-get_interval_label() {
-    local label timestamp now=$(date +%s) dir_name
-    declare -A interval_seconds=([monthly]=$((28*24*3600)) [weekly]=$((7*24*3600)) [daily]=$((24*3600)))
-    for label in monthly weekly daily; do
+get_interval_label_and_count() {
+    local label label_count label_duration timestamp now=$(date +%s) dir_name output
+    while read label label_duration label_count; do
+        # we need to prepare output here since outside of the looop label and label_count will be empty
+        output="$label $label_count"
         dir_name=$(ls -dt ${WORK_DIR}/${HOST}/*_${label} 2>/dev/null | head -n1)
         timestamp=0
         [ -n "$dir_name" ] && timestamp=$(date -d "$(basename $dir_name | sed -e 's/_[^_]*$//' -e 's/_/ /')" +%s)
-        ((now - timestamp > ${interval_seconds[$label]})) && echo -n $label && return
-    done
-    echo -n "hourly"
+        ((now - timestamp > $label_duration)) && break
+    done < <(printf "%s\n" "${CONFIG[@]}" | grep -P "^\S+\s+\d+\s+\d+$" | sort -rn -k2)
+    # with grep in the previous line we ensure that we use only entries in proper format: string number number
+    echo $output
 }
 
-mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)_$(get_interval_label)/
+# 0 is label, 1 is label_count
+label_params=( $(get_interval_label_and_count) )
+
+mv $latest ${WORK_DIR}/${HOST}/$(date +%F_%T)_${label_params[0]}/
+ls -dt ${WORK_DIR}/${HOST}/*_${label_params[0]} | tail -n +${label_params[1]} | xargs rm -rf
