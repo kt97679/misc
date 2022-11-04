@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2162,SC1090
 
-_e() { echo $'\e['"${1:-}"m ; }
+_e() { [[ -n $BDB_COLOR_OUTPUT ]] && echo $'\e['"${1:-}"m; }
 
 __dbg__usage() {
     echo "bdb <command> [<command_args>...]"
@@ -12,6 +12,10 @@ __dbg__usage() {
     echo "Commands:"
     __dbg__commands
     echo
+    echo "Environment:"
+    echo "  BDB_COLOR_OUTPUT    set to a non-empty string to enable colored output"
+    echo
+    echo "Hint: Use ^D instead of Enter to continue the execution."
 }
 __dbg__commands() {
     echo "  bdb> h[elp]         display command list"
@@ -22,8 +26,6 @@ __dbg__commands() {
     echo "  bdb> bae <n>        add new breakpoint: pause at every <n> lines"
     echo "  bdb> bd <n>         remove the breakpoint number <n> (as in 'bl' command)"
     echo "  bdb> <command>      run the arbitrary shell command; useful for checking variable values etc."
-    echo
-    echo "Hint: Use ^D instead of Enter to continue the execution."
 }
 
 __dbg__breakpoints=()
