@@ -6,6 +6,8 @@ HOST=${1:-}
 
 ((UID != 0)) && exec sudo -E $0 $HOST
 
+exec &> >(tee /tmp/$(basename $0).log)
+
 # interval_label interval_duration_in_seconds interval_backup_count
 CONFIG=(
     "hourly 3600 168"
@@ -15,6 +17,7 @@ CONFIG=(
 )
 MIN_BACKUP_COUNT=24
 MIN_FREE_SPACE=$((1 * 1024 * 1024))
+MIN_FREE_INODES=1000
 WORK_DIR=$(dirname $(readlink -f $0))
 
 [[ "$WORK_DIR" =~ backup ]] || {
@@ -72,15 +75,15 @@ cleanup_backups() {
 
 while true; do
     rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest || :
-    avail=$(df --output=avail $WORK_DIR|tail -n 1)
-    ((avail > MIN_FREE_SPACE)) && break
+    read avail iavail < <(df --output=avail,iavail $WORK_DIR|sed 1d)
+    ((avail > MIN_FREE_SPACE && iavail > MIN_FREE_INODES)) && break
     cleanup_backups
 done
 
 get_interval_label_and_count() {
     local label label_count label_duration timestamp now=$(date +%s) dir_name output
     while read label label_duration label_count; do
-        # we need to prepare output here since outside of the looop label and label_count will be empty
+        # we need to prepare output here since outside of the loop label and label_count will be empty
         output="$label $label_count"
         dir_name=$(ls -dt ${WORK_DIR}/${HOST}/*_${label} 2>/dev/null | head -n1)
         timestamp=0
