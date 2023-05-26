@@ -52,7 +52,7 @@ void usage(uint8_t *program_name) {
 uint64_t generate_initial_state() {
     struct timeval t;
     gettimeofday(&t, NULL);
-    return (uint64_t)(t.tv_usec * t.tv_sec);
+    return (uint64_t)(t.tv_usec * t.tv_sec * getpid() * getppid());
 }
 
 int parse_args(int argc, char *argv[], struct params_s *params ) {
