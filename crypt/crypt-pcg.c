@@ -132,7 +132,7 @@ void prepare_state(uint8_t *password, struct pcg32_random_s *rng, uint64_t initi
     int word_index = 0;
     uint64_t warm_up_count = 0;
     int i = 0;
-    uint64_t state[2] = {initial_state, initial_state};
+    uint64_t state[2] = {initial_state, initial_state * initial_state};
 
     for (uint8_t *p = password; *p != 0; p++) {
         word_index = i % PCG32_STATE_SIZE;
