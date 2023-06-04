@@ -17,7 +17,7 @@
 #define BITS_IN_BYTE 8
 #define BYTES_IN_UINT64_T 8
 #define BYTE_MASK 0xff
-#define PCG32_STATE_SIZE 2
+#define PCG32_STATE_SIZE 4
 
 struct params_s {
     int in_file;
@@ -26,14 +26,13 @@ struct params_s {
     int action;
 };
 
-struct pcg32_random_s { uint64_t state;  uint64_t inc; };
 
 // https://www.pcg-random.org/download.html
 // https://en.wikipedia.org/wiki/Permuted_congruential_generator
-uint32_t pcg32_random_r(struct pcg32_random_s* rng) {
-    uint64_t oldstate = rng->state;
+uint32_t pcg32_random_r(uint64_t state[]) {
+    uint64_t oldstate = state[0];
     // Advance internal state
-    rng->state = oldstate * 6364136223846793005ULL + (rng->inc|1);
+    state[0] = oldstate * 6364136223846793005ULL + (state[1]|1);
     // Calculate output function (XSH RR), uses old state for max ILP
     uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
     uint32_t rot = oldstate >> 59u;
@@ -123,16 +122,24 @@ int parse_args(int argc, char *argv[], struct params_s *params ) {
     return 0;
 }
 
-uint8_t get_random_byte(struct pcg32_random_s *rng) {
-    return pcg32_random_r(rng) & BYTE_MASK;
+uint8_t get_random_byte(uint64_t *state) {
+    static uint32_t random_number = 0;
+    uint32_t another_random_number = pcg32_random_r(state) ^ random_number;
+    if ((another_random_number >> 28) == 0) {
+        random_number = pcg32_random_r(state + 2);
+    }
+    return another_random_number & BYTE_MASK;
 }
 
-void prepare_state(uint8_t *password, struct pcg32_random_s *rng, uint64_t initial_state) {
+void prepare_state(uint8_t *password, uint64_t *state, uint64_t initial_state) {
     int byte_index = 0;
     int word_index = 0;
     uint64_t warm_up_count = 0;
     int i = 0;
-    uint64_t state[2] = {initial_state, initial_state * initial_state};
+
+    for (i = 0; i < PCG32_STATE_SIZE; i++) {
+        state[i] = initial_state ^ (initial_state << (i + 1) | (initial_state >> (BITS_IN_BYTE * BYTES_IN_UINT64_T - (i + 1))));
+    }
 
     for (uint8_t *p = password; *p != 0; p++) {
         word_index = i % PCG32_STATE_SIZE;
@@ -142,10 +149,10 @@ void prepare_state(uint8_t *password, struct pcg32_random_s *rng, uint64_t initi
         i = (i + 1) % (PCG32_STATE_SIZE * BYTES_IN_UINT64_T);
     }
 
-    rng->state = state[0];
-    rng->inc = state[1];
     for (i = 0; i < warm_up_count; i++) {
-        pcg32_random_r(rng);
+        for (int j = 0; j < PCG32_STATE_SIZE; j += 2) {
+            pcg32_random_r(state + j);
+        }
     }
 }
 
@@ -167,45 +174,45 @@ ssize_t write_or_die(int fd, void *buf, size_t count, char *message) {
     return write_count;
 }
 
-void read_xor_write(int in_file, int out_file, struct pcg32_random_s *rng, uint8_t *buf) {
+void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf) {
     int bytes_read_count = 0;
 
     while (1) {
         bytes_read_count = read_or_die(in_file, buf, BUFSIZE, "Error: failed to read data.");
         if (bytes_read_count == 0) break;
         for (int i = 0; i < bytes_read_count; i++) {
-            buf[i] ^= get_random_byte(rng);
+            buf[i] ^= get_random_byte(state);
         }
         write_or_die(out_file, buf, bytes_read_count, "Error: failed to write data.");
     }
 }
 
-int generate_head(struct pcg32_random_s *rng, uint8_t *buf, uint64_t initial_state) {
-    int head_length = get_random_byte(rng) + 1; // 1-256 random bytes at the head of the file
+int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state) {
+    int head_length = get_random_byte(state) + 1; // 1-256 random bytes at the head of the file
 
     for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
         buf[i] = (initial_state >> ((BYTES_IN_UINT64_T - 1 - i) * BITS_IN_BYTE)) & BYTE_MASK;
     }
     // to avoid continuous data in the header we skip bytes while filling in the buffer
     for (int i = 0; i < head_length; i++) {
-        for (int j = get_random_byte(rng); j > 0; j--) {
-            get_random_byte(rng);
+        for (int j = get_random_byte(state); j > 0; j--) {
+            get_random_byte(state);
         }
-        buf[i + BYTES_IN_UINT64_T] = get_random_byte(rng);
+        buf[i + BYTES_IN_UINT64_T] = get_random_byte(state);
     }
     return head_length + BYTES_IN_UINT64_T;
 }
 
 void encrypt(struct params_s *params) {
     uint64_t initial_state = generate_initial_state();
-    struct pcg32_random_s rng;
+    uint64_t state[PCG32_STATE_SIZE];
     uint8_t buf[BUFSIZE];
     int head_length;
 
-    prepare_state(params->password, &rng, initial_state);
-    head_length = generate_head(&rng, buf, initial_state);
+    prepare_state(params->password, state, initial_state);
+    head_length = generate_head(state, buf, initial_state);
     write_or_die(params->out_file, buf, head_length, "Error: failed to write head data.");
-    read_xor_write(params->in_file, params->out_file, &rng, buf);
+    read_xor_write(params->in_file, params->out_file, state, buf);
 }
 
 uint64_t read_initial_state(int in_file) {
@@ -226,20 +233,20 @@ uint64_t read_initial_state(int in_file) {
 
 void decrypt(struct params_s *params) {
     uint64_t initial_state = read_initial_state(params->in_file);
-    struct pcg32_random_s rng;
+    uint64_t state[PCG32_STATE_SIZE];
     uint8_t buf[BUFSIZE];
     int head_length;
     int bytes_read_count = 0;
 
-    prepare_state(params->password, &rng, initial_state);
-    // we use same generate_head() function as in encrypt() to have rng in the same state
-    head_length = generate_head(&rng, buf, initial_state) - BYTES_IN_UINT64_T; // - BYTES_IN_UINT64_T because of read_initial_state() above
+    prepare_state(params->password, state, initial_state);
+    // we use same generate_head() function as in encrypt() to have same state
+    head_length = generate_head(state, buf, initial_state) - BYTES_IN_UINT64_T; // - BYTES_IN_UINT64_T because of read_initial_state() above
     bytes_read_count = read_or_die(params->in_file, buf, head_length, "Error: failed to read head data.");
     if (bytes_read_count != head_length) {
         fprintf(stderr, "Error: head data should be %d bytes, got %d bytes instead.\n", head_length, bytes_read_count);
         exit(1);
     }
-    read_xor_write(params->in_file, params->out_file, &rng, buf);
+    read_xor_write(params->in_file, params->out_file, state, buf);
 }
 
 int main(int argc, char *argv[]) {
