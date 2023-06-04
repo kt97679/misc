@@ -125,6 +125,8 @@ int parse_args(int argc, char *argv[], struct params_s *params ) {
 uint8_t get_random_byte(uint64_t *state) {
     static uint32_t random_number = 0;
     uint32_t another_random_number = pcg32_random_r(state) ^ random_number;
+    // if upper 4 bits of another_random_number are zero we generate new random_number
+    // on average this should happen roughly every 16th call but distribution is pretty wide
     if ((another_random_number >> 28) == 0) {
         random_number = pcg32_random_r(state + 2);
     }
