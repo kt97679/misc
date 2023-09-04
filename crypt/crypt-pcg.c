@@ -179,6 +179,7 @@ ssize_t write_or_die(int fd, void *buf, size_t count, char *message) {
 void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf) {
     int bytes_read_count = 0;
 
+    // TODO xor current char with previous char
     while (1) {
         bytes_read_count = read_or_die(in_file, buf, BUFSIZE, "Error: failed to read data.");
         if (bytes_read_count == 0) break;
