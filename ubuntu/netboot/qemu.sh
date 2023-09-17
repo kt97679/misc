@@ -26,7 +26,9 @@ kill_pids() {
 }
 
 start() {
+    local console=false cmd_suffix=">qemu.log 2>&1 &"
     kill_pids -0 && echo "Already running" && exit
+    [ "${1:-}" == "console" ] && console=true
     cd $output_dir
     http_port=$(get_free_port)
     web_root="http://10.0.2.2:$http_port"
@@ -58,12 +60,13 @@ start() {
         "  StrictHostKeyChecking no" \
         "  PasswordAuthentication no" \
         "  LogLevel FATAL" > $ssh_config
-    qemu-system-x86_64 ${QEMU_OPTS:-} \
+    $console && cmd_suffix=""
+    eval qemu-system-x86_64 ${QEMU_OPTS:-} \
         -boot n \
         -device virtio-net-pci,netdev=n1 \
         -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp::${ssh_port}-:22,domainname=${domainname} \
         -nographic \
-        -m 4096 >qemu.log 2>&1 &
+        -m 4096 "$cmd_suffix"
 #        -enable-kvm \
 #        -cpu max >qemu.log 2>&1 &
     echo $! >qemu.pid
@@ -79,5 +82,6 @@ case ${1:-} in
     start) start ;;
     stop) kill_pids || true ;;
     ssh) run_ssh ;;
-    *) echo "Usage: $0 start|stop|ssh" ;;
+    console) start console ;;
+    *) echo "Usage: $0 start|stop|ssh|console" ;;
 esac
