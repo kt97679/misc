@@ -45,7 +45,7 @@ start() {
         "kernel $vmlinuz dhcp boot=live fetch=$squashfs nomodeset console=ttyS0,115200n8 rootsize=10%" \
         "initrd $initrd" \
         "boot" >boot.ipxe
-    python3 -m http.server $http_port >http.log 2>&1 &
+    python3 -m http.server $http_port --bind 127.0.0.1 >http.log 2>&1 &
     echo $! >http.pid
     domainname="$(hostname -d)"
     [ -z "$domainname" ] && domainname="unknown"
@@ -64,7 +64,7 @@ start() {
     eval qemu-system-x86_64 ${QEMU_OPTS:-} \
         -boot n \
         -device virtio-net-pci,netdev=n1 \
-        -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp::${ssh_port}-:22,domainname=${domainname} \
+        -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,domainname=${domainname} \
         -nographic \
         -m 4096 "$cmd_suffix"
 #        -enable-kvm \
