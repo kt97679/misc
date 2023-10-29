@@ -66,4 +66,4 @@ done
 mv ${IMAGE_ROOT}/root/.ssh/ssh-key /build/output/
 cp ${IMAGE_ROOT}/boot/{vmlinuz,initrd}*generic /build/output/
 rm -f /build/output/root.squashfs
-mksquashfs ${IMAGE_ROOT} /build/output/root.squashfs -b 1048576 -comp xz -Xdict-size 100% -regex -e proc/.* -e sys/.* -e run/.* -e var/lib/apt/lists/.* -e boot/.*
+mksquashfs ${IMAGE_ROOT} /build/output/root.squashfs -b 1048576 -comp xz -Xdict-size 100% -regex -e "proc/.*" -e "sys/.*" -e "run/.*" -e "var/lib/apt/lists/.*" -e "boot/.*"

@@ -81,7 +81,7 @@ start() {
 case ${1:-} in
     start) start ;;
     stop) kill_pids || true ;;
-    ssh) run_ssh ;;
+    ssh) shift && run_ssh "$@" ;;
     console) start console ;;
     *) echo "Usage: $0 start|stop|ssh|console" ;;
 esac
