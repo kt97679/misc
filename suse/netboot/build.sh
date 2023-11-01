@@ -23,7 +23,7 @@ zypper update -y
 zypper install -y squashfs
 rpm --root $IMAGE_ROOT --import /usr/lib/rpm/gnupg/keys/*.asc
 zypper --root $IMAGE_ROOT ar --refresh http://download.opensuse.org/distribution/leap/15.6/repo/oss/ oss
-zypper --root $IMAGE_ROOT in -y --no-recommends kernel-default zypper bash util-linux openssh-server dracut squashfs curl dhcp-client device-mapper tar NetworkManager
+zypper --root $IMAGE_ROOT in -y --no-recommends kernel-default zypper bash util-linux openssh-server dracut squashfs curl dhcp-client device-mapper tar
 
 pseudo_fs=(
     "dev     devtmpfs                   devtmpfs"
