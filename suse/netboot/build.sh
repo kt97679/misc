@@ -52,7 +52,7 @@ rm -rf /etc/{hostname,hosts} /var/log/*.log /root/.cache
 > /etc/machine-id
 mkdir -p /root/.ssh && ssh-keygen -N '' -f /root/.ssh/ssh-key
 mv /root/.ssh/ssh-key.pub /root/.ssh/authorized_keys
-dracut -f --regenerate-all -m "livenet" --add-drivers "dm_mod virtio virtio_pci virtio_blk virtio_net loop squashfs" --install "/usr/bin/stat"
+dracut -N -f --regenerate-all -m "livenet"
 CHROOT
 
 printf "%s\n" "${pseudo_fs[@]}"|tac|while read mount_point mount_options; do
