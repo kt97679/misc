@@ -21,11 +21,12 @@ kill_pids() {
 }
 
 start() {
-    local console=false cmd_suffix=">qemu.log 2>&1 &"
+    local console=false cmd_suffix=">qemu.log 2>&1 &" http_port=$(get_free_port) web_root ssh_port deadline=$((SECONDS + wait_seconds))
     kill_pids -0 && echo "Already running" && exit
     [ "${1:-}" == "console" ] && console=true
     cd $output_dir
-    http_port=$(get_free_port)
+    python3 -m http.server $http_port --bind 127.0.0.1 >http.log 2>&1 &
+    echo $! >http.pid
     web_root="http://10.0.2.2:$http_port"
     for x in *; do
         url=$web_root/$x
@@ -40,8 +41,6 @@ start() {
         "kernel $vmlinuz dhcp boot=live fetch=$squashfs nomodeset console=ttyS0,115200n8 rootsize=10%" \
         "initrd $initrd" \
         "boot" >boot.ipxe
-    python3 -m http.server $http_port --bind 127.0.0.1 >http.log 2>&1 &
-    echo $! >http.pid
     domainname="$(hostname -d)"
     [ -z "$domainname" ] && domainname="unknown"
     ssh_port=$(get_free_port)
@@ -65,7 +64,6 @@ start() {
 	$([ -r /dev/kvm ] && echo -enable-kvm -cpu max) \
         -m 4096 "$cmd_suffix"
     echo $! >qemu.pid
-    deadline=$((SECONDS + wait_seconds))
     while ((SECONDS < deadline)); do
         run_ssh true >/dev/null 2>&1 && echo "VM is ready" && exit
         sleep 5
