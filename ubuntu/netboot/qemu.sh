@@ -41,8 +41,6 @@ start() {
         "kernel $vmlinuz dhcp boot=live fetch=$squashfs nomodeset console=ttyS0,115200n8 rootsize=10%" \
         "initrd $initrd" \
         "boot" >boot.ipxe
-    domainname="$(hostname -d)"
-    [ -z "$domainname" ] && domainname="unknown"
     ssh_port=$(get_free_port)
     chmod 0600 ssh-key
     printf "%s\n" \
@@ -59,7 +57,7 @@ start() {
     eval qemu-system-x86_64 ${QEMU_OPTS:-} \
         -boot n \
         -device virtio-net-pci,netdev=n1 \
-        -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,domainname=${domainname} \
+        -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,domainname=$(hostname -d|grep .||echo unknown) \
         -nographic \
 	$([ -r /dev/kvm ] && echo -enable-kvm -cpu max) \
         -m 4096 "$cmd_suffix"
