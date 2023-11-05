@@ -1,8 +1,8 @@
 #!/bin/bash
 
-set -ue
+set -ue -o pipefail
 
-output_dir="$(dirname $(readlink -f $0))/output"
+output_dir="$(dirname $(realpath $0))/output"
 wait_seconds=120
 ssh_config=$output_dir/ssh_config
 
@@ -11,18 +11,13 @@ run_ssh() {
 }
 
 get_free_port() {
-    local port
-    while true; do
-        port=$((1024 + RANDOM % 8192))
-        netstat -lnt|grep -q ":${port}\b" && continue
-        echo $port
-        return
-    done
+    local port=$((1024 + RANDOM % 8192))
+    while : > /dev/tcp/127.0.0.1/$((port++)) ; do : ; done 2>/dev/null
+    echo $port
 }
 
 kill_pids() {
-    local pids=$(cat $output_dir/*.pid 2>/dev/null)
-    [ -n "$pids" ] && kill ${1:-} $pids >/dev/null 2>&1
+    cat $output_dir/*.pid 2>/dev/null | xargs -r kill ${1:-} 2>/dev/null
 }
 
 start() {
@@ -67,9 +62,8 @@ start() {
         -device virtio-net-pci,netdev=n1 \
         -netdev user,id=n1,tftp=${output_dir},bootfile=/boot.ipxe,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,domainname=${domainname} \
         -nographic \
+	$([ -r /dev/kvm ] && echo -enable-kvm -cpu max) \
         -m 4096 "$cmd_suffix"
-#        -enable-kvm \
-#        -cpu max >qemu.log 2>&1 &
     echo $! >qemu.pid
     deadline=$((SECONDS + wait_seconds))
     while ((SECONDS < deadline)); do
