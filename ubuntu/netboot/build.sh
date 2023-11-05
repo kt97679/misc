@@ -7,59 +7,24 @@ IMAGE_ROOT="/new_root"
 SCRIPT_DIR=$(dirname $(realpath $0))
 
 [ -z "${PACKER_BUILD_NAME:-}" ] && {
+    mkdir -p $SCRIPT_DIR/output
+    exec &> >(tee $SCRIPT_DIR/output/$0.log)
     exec packer build -var IMAGE="public.ecr.aws/lts/ubuntu:$UBUNTU_VERSION" build.json
 }
 
-at_exit() {
-    chown -R --reference=$0 $SCRIPT_DIR
-}
-
-trap at_exit EXIT
-
-mkdir -p /build/output
-mkdir -p "$IMAGE_ROOT"
+mkdir -p "$IMAGE_ROOT" && cd "$IMAGE_ROOT"
 
 . /etc/os-release
 apt-get update && apt-get install --no-install-recommends -y squashfs-tools debootstrap
-debootstrap --arch amd64 --variant=minbase --components=main,restricted,universe --include=live-boot,systemd-sysv,openssh-server,linux-image-virtual ${UBUNTU_CODENAME} ${IMAGE_ROOT}
-cp /etc/apt/sources.list ${IMAGE_ROOT}/etc/apt/sources.list
-rm -rf ${IMAGE_ROOT}/var/cache/apt
+debootstrap --arch amd64 --variant=minbase --components=main,restricted,universe --include=live-boot,systemd-sysv,openssh-server,linux-image-virtual ${UBUNTU_CODENAME} .
+cp /etc/apt/sources.list ./etc/apt/sources.list
 
-pseudo_fs=(
-    "dev     devtmpfs                   devtmpfs"
-    "dev/pts devpts   -o gid=5,mode=620 devpts"
-    "proc    proc                       proc"
-    "run     tmpfs    -o mode=755       tmpfs"
-    "sys     sysfs                      sysfs"
-    "tmp     tmpfs                      tmpfs"
-    "var/tmp tmpfs                      tmpfs"
-)
+sed -i -e '/^PermitRootLogin/d' -e '$aPermitRootLogin without-password' ./etc/ssh/sshd_config
+> ./etc/machine-id
+./usr/bin/ssh-keygen -N '' -f ./boot/ssh-key
+mkdir -p ./root/.ssh && mv ./boot/ssh-key.pub ./root/.ssh/authorized_keys
 
-clear_mount_point() {
-    find ${IMAGE_ROOT}/$1 -mindepth 1 -print0 | xargs -0 --no-run-if-empty rm -rf
-}
-
-printf "%s\n" "${pseudo_fs[@]}"|while read mount_point mount_options; do
-    clear_mount_point $mount_point
-    mount -t $mount_options ${IMAGE_ROOT}/$mount_point
-done
-chmod 1777 "${IMAGE_ROOT}/dev/shm"
-
-chroot ${IMAGE_ROOT} /bin/bash <<CHROOT
-sed -i -e '/^PermitRootLogin/d' /etc/ssh/sshd_config
-echo -e "\nPermitRootLogin without-password" >>/etc/ssh/sshd_config
-rm -rf /etc/{hostname,hosts} /var/log/*.log /root/.cache
-> /etc/machine-id
-mkdir -p /root/.ssh && ssh-keygen -N '' -f /root/.ssh/ssh-key
-mv /root/.ssh/ssh-key.pub /root/.ssh/authorized_keys
-CHROOT
-
-printf "%s\n" "${pseudo_fs[@]}"|tac|while read mount_point mount_options; do
-    umount ${IMAGE_ROOT}/${mount_point}
-    clear_mount_point $mount_point
-done
-
-mv ${IMAGE_ROOT}/root/.ssh/ssh-key /build/output/
-cp ${IMAGE_ROOT}/boot/{vmlinuz,initrd}*generic /build/output/
-rm -f /build/output/root.squashfs
-mksquashfs ${IMAGE_ROOT} /build/output/root.squashfs -b 1048576 -comp xz -Xdict-size 100% -regex -e "proc/.*" -e "sys/.*" -e "run/.*" -e "var/lib/apt/lists/.*" -e "boot/.*"
+rm -rf ./var/cache/apt ./etc/{hostname,hosts} ./var/log/*.log ./root/.cache
+mksquashfs . ./boot/root.squashfs -b 1048576 -comp xz -Xdict-size 100% -regex -e "proc/.*" -e "sys/.*" -e "run/.*" -e "var/lib/apt/lists/.*" -e "boot/.*"
+cd ./boot && chmod -R +r .
+setpriv $(stat -c "--reuid=%u --regid=%g" $0) --clear-groups cp ssh-key root.squashfs {vmlinuz,initrd}*generic $SCRIPT_DIR/output/

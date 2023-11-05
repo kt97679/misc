@@ -4,7 +4,6 @@
     {
       "type": "docker",
       "image": "{{user `IMAGE`}}",
-      "privileged": true,
       "discard": true,
       "volumes": {
         "{{pwd}}": "/build"

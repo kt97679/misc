@@ -50,6 +50,7 @@ start() {
     domainname="$(hostname -d)"
     [ -z "$domainname" ] && domainname="unknown"
     ssh_port=$(get_free_port)
+    chmod 0600 ssh-key
     printf "%s\n" \
         "Host qemu" \
         "  HostName 127.0.0.1" \
