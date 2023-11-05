@@ -21,8 +21,9 @@ mkdir -p "$IMAGE_ROOT"
 
 . /etc/os-release
 apt-get update && apt-get install --no-install-recommends -y squashfs-tools debootstrap
-debootstrap --arch amd64 --variant=minbase ${UBUNTU_CODENAME} ${IMAGE_ROOT}
+debootstrap --arch amd64 --variant=minbase --components=main,restricted,universe --include=live-boot,systemd-sysv,openssh-server,linux-image-virtual ${UBUNTU_CODENAME} ${IMAGE_ROOT}
 cp /etc/apt/sources.list ${IMAGE_ROOT}/etc/apt/sources.list
+rm -rf ${IMAGE_ROOT}/var/cache/apt
 
 pseudo_fs=(
     "dev     devtmpfs                   devtmpfs"
@@ -45,11 +46,6 @@ done
 chmod 1777 "${IMAGE_ROOT}/dev/shm"
 
 chroot ${IMAGE_ROOT} /bin/bash <<CHROOT
-apt-get update
-apt-get install --no-install-recommends -y live-boot systemd-sysv openssh-server linux-image-virtual
-apt-get dist-upgrade -y
-apt-get autoremove --purge -y
-apt-get clean
 sed -i -e '/^PermitRootLogin/d' /etc/ssh/sshd_config
 echo -e "\nPermitRootLogin without-password" >>/etc/ssh/sshd_config
 rm -rf /etc/{hostname,hosts} /var/log/*.log /root/.cache
