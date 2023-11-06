@@ -8,7 +8,7 @@ SCRIPT_DIR=$(dirname $(realpath $0))
 
 [ -z "${PACKER_BUILD_NAME:-}" ] && {
     mkdir -p $SCRIPT_DIR/output
-    exec &> >(tee $SCRIPT_DIR/output/$0.log)
+    exec &> >(tee $SCRIPT_DIR/output/$(basename $0).log)
     exec packer build -var IMAGE="public.ecr.aws/lts/ubuntu:$UBUNTU_VERSION" build.json
 }
 
