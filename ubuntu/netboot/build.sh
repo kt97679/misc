@@ -23,6 +23,7 @@ sed -i -e '/^PermitRootLogin/d' -e '$aPermitRootLogin without-password' ./etc/ss
 > ./etc/machine-id
 ./usr/bin/ssh-keygen -N '' -f ./boot/ssh-key
 mkdir -p ./root/.ssh && mv ./boot/ssh-key.pub ./root/.ssh/authorized_keys
+#echo "root:root"|chpasswd --root $PWD
 
 rm -rf ./var/cache/apt ./etc/{hostname,hosts} ./var/log/*.log ./root/.cache
 mksquashfs . ./boot/root.squashfs -b 1048576 -comp xz -Xdict-size 100% -regex -e "proc/.*" -e "sys/.*" -e "run/.*" -e "var/lib/apt/lists/.*" -e "boot/.*"

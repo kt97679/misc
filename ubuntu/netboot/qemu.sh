@@ -63,7 +63,7 @@ start() {
         -m 4096 "$cmd_suffix"
     echo $! >qemu.pid
     while ((SECONDS < deadline)); do
-        run_ssh true >/dev/null 2>&1 && echo "VM is ready" && exit
+        run_ssh true >/dev/null 2>&1 && echo "VM is ready in $SECONDS seconds" && exit
         sleep 5
     done
     echo "VM failed to start"
