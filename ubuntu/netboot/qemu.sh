@@ -3,7 +3,7 @@
 set -ue -o pipefail
 
 output_dir="$(dirname $(realpath $0))/output"
-wait_seconds=120
+wait_seconds=180
 ssh_config=$output_dir/ssh_config
 
 run_ssh() {

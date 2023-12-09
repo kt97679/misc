@@ -20,6 +20,15 @@ mkdir -p "$IMAGE_ROOT" && cd "$IMAGE_ROOT"
 apt-get update && apt-get install --no-install-recommends -y squashfs-tools debootstrap
 debootstrap --arch amd64 --variant=minbase --components=main,restricted,universe --include=live-boot,systemd-sysv,openssh-server,linux-image-virtual ${UBUNTU_CODENAME} .
 cp /etc/apt/sources.list ./etc/apt/sources.list
+mkdir -p /etc/systemd/network/
+cat > ./etc/systemd/network/80-dhcp.network <<NETWORK
+[Match]
+Name=!lo* !docker*
+[Network]
+DHCP=yes
+NETWORK
+
+chroot . systemctl enable systemd-networkd.service
 
 sed -i -e '/^PermitRootLogin/d' -e '$aPermitRootLogin without-password' ./etc/ssh/sshd_config
 > ./etc/machine-id
