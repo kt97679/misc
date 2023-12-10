@@ -14,7 +14,7 @@ sgdisk -n1:1M:+256M -t1:EF00 -c1:EFI $DISK1
 sgdisk -n1:1M:+256M -t1:EF00 -c1:EFI $DISK2
 sgdisk -n2:0:+1024M -t2:be00 -c2:Boot $DISK1
 sgdisk -n2:0:+1024M -t2:be00 -c2:Boot $DISK2
-sgdisk -n3:0:0 t3:bf00 -c3:Ubuntu $DISK1
+sgdisk -n3:0:0 -t3:bf00 -c3:Ubuntu $DISK1
 sgdisk -n3:0:0 -t3:bf00 -c3:Ubuntu $DISK2
 mkfs.msdos -F 32 -n EFI ${DISK1}-part1
 sleep 2
