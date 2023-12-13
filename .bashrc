@@ -64,9 +64,8 @@ type -f rbenv >/dev/null 2>&1 && eval "$(rbenv init -)"
 type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
 
 [ -f ~/.ssh/id_ed25519 ] && [ -f ~/.ssh/id_ed25519.pub ] && {
-    mkdir -p ~/.ssh/agent && chmod 0700 ~/.ssh/agent
-    export SSH_AUTH_SOCK=$(ls -t ~/.ssh/agent/* 2>/dev/null | sed 1q)
-    [ -z "$SSH_AUTH_SOCK" ] && . <(ssh-agent -a ~/.ssh/agent/$BASHPID)
+    export SSH_AUTH_SOCK=~/.ssh/agent
+    pgrep -f $SSH_AUTH_SOCK >/dev/null || ssh-agent -a $SSH_AUTH_SOCK &>/dev/null
     ssh-add -L | grep -q "$(cut -f1,2 -d' ' ~/.ssh/id_ed25519.pub)" || ssh-add
 }
 [ -r ~/.byobu/prompt ] && . ~/.byobu/prompt
