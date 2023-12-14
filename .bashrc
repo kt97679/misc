@@ -65,7 +65,10 @@ type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
 
 [ -f ~/.ssh/id_ed25519 ] && [ -f ~/.ssh/id_ed25519.pub ] && {
     export SSH_AUTH_SOCK=~/.ssh/agent
-    pgrep -f $SSH_AUTH_SOCK >/dev/null || ssh-agent -a $SSH_AUTH_SOCK &>/dev/null
+    pgrep -f $SSH_AUTH_SOCK >/dev/null || {
+        rm -f $SSH_AUTH_SOCK
+        ssh-agent -a $SSH_AUTH_SOCK &>/dev/null
+    }
     ssh-add -L | grep -q "$(cut -f1,2 -d' ' ~/.ssh/id_ed25519.pub)" || ssh-add
 }
 [ -r ~/.byobu/prompt ] && . ~/.byobu/prompt
