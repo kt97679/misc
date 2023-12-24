@@ -70,11 +70,11 @@ cleanup_backups() {
     }
     dir_to_delete=$(ls -dt ${WORK_DIR}/${HOST}/* | grep -P "/[^/]*_?${label}$" | tail -n1)
     echo "Cleanup: $dir_to_delete"
-    rm -rf "$dir_to_delete"
+    nice rm -rf "$dir_to_delete"
 }
 
 while true; do
-    rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest || :
+    nice rsync -av --ignore-errors --rsync-path='sudo rsync' $rsync_options ${remote_host}{/home,/etc} $latest || :
     read avail iavail < <(df --output=avail,iavail $WORK_DIR|sed 1d)
     ((avail > MIN_FREE_SPACE && iavail > MIN_FREE_INODES)) && break
     cleanup_backups
