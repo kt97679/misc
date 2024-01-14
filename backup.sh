@@ -2,7 +2,7 @@
 
 set -ue
 
-HOST=${1:-}
+HOST=${1:-$(hostname -s)}
 
 ((UID != 0)) && exec sudo -E $0 $HOST
 
@@ -39,12 +39,10 @@ get_lock() {
 
 rsync_options=""
 remote_host=""
-if [ -z "$HOST" ] ; then
-    HOST=$(hostname -s)
-else
+[ $HOST != $(hostname -s) ] && {
     rsync_options="-e ssh"
     remote_host="${SUDO_USER}@${HOST}:"
-fi
+}
 
 [ -d ${WORK_DIR}/${HOST} ] || {
     echo "Error: directory ${WORK_DIR}/${HOST} doesn't exist"
