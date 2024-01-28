@@ -10,7 +10,7 @@
 
 [ -z "$SSH_TTY" ] && command -v socat >/dev/null && {
     history_port=26574
-    netstat -lnt|grep -q ":${history_port}\b" || {
+    ( : > "/dev/tcp/127.0.0.1/${history_port}" ) &> /dev/null || {
         umask 077 && socat -u TCP4-LISTEN:$history_port,bind=127.0.0.1,reuseaddr,fork OPEN:$HOME/.bash_eternal_history,creat,append &
     }
 }
