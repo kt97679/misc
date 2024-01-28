@@ -10,6 +10,4 @@ all_symbols=$digit_symbols$upper_symbols$lower_symbols$punct_symbols
 
 tr -dc $all_symbols </dev/urandom \
     | fold -w $password_length \
-    | sed "/[$lower_symbols]/!d; /[$upper_symbols]/!d; /[$digit_symbols]/!d; /[$punct_symbols]/!d" \
-    | head -n20
-
+    | sed "/[$lower_symbols]/!d; /[$upper_symbols]/!d; /[$digit_symbols]/!d; /[$punct_symbols]/!d; 20q;"
