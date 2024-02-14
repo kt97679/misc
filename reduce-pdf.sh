@@ -12,7 +12,7 @@ reduce_single_file() {
 
     gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$temp_file" "$input_file"
     temp_file_size=$(stat -c %s "$temp_file")
-    ((temp_file_size < input_file_size)) && chmod +w "$temp_file" && mv "$temp_file" "$input_file"
+    ((temp_file_size < input_file_size)) && chmod 0644 "$temp_file" && mv "$temp_file" "$input_file"
     rm -f "$temp_file"
     trap - EXIT
 }
