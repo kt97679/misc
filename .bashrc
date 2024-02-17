@@ -71,7 +71,9 @@ type -f pyenv >/dev/null 2>&1 && eval "$(pyenv init -)"
     }
     ssh-add -L | grep -q "$(cut -f1,2 -d' ' ~/.ssh/id_ed25519.pub)" || ssh-add
 }
+
 [ -r ~/.byobu/prompt ] && . ~/.byobu/prompt
+PS1=$(sed -e 's/..byobu_prompt_runtime..//' <<<"$PS1")
 
 export EDITOR=vim
 export DOCKER_HOST=unix:///var/run/docker.sock
