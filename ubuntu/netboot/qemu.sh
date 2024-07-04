@@ -16,13 +16,13 @@ get_free_port() {
     echo $port
 }
 
-kill_pids() {
-    cat $output_dir/*.pid 2>/dev/null | xargs -r kill ${1:-} 2>/dev/null
+kill_qemu() {
+    pkill ${1:-} -f "tcp:127.0.0.1:$(grep -oP "Port\s+\K\d+" $ssh_config)-"
 }
 
 start() {
     local http_port=$(get_free_port) web_root ssh_port deadline=$((SECONDS + wait_seconds)) qemu_cmd http_hook
-    kill_pids -0 && echo "Already running" && exit
+    kill_qemu -0 && echo "Already running" && exit
     cd $output_dir
     web_root="http://10.0.2.2:$http_port"
     rm -f ssh-key && ssh-keygen -N '' -t ed25519 -f ssh-key &>/dev/null
@@ -66,9 +66,8 @@ start() {
         exit
     }
     eval "$qemu_cmd &> qemu.log &"
-    echo $! >qemu.pid
     while ((SECONDS < deadline)); do
-        run_ssh true >/dev/null 2>&1 && echo "VM is ready in $SECONDS seconds" && exit
+        run_ssh true &> /dev/null && echo "VM is ready in $SECONDS seconds" && exit
         sleep 5
     done
     echo "VM failed to start"
@@ -76,7 +75,7 @@ start() {
 
 case ${1:-} in
     start) start ;;
-    stop) kill_pids || true ;;
+    stop) kill_qemu || true ;;
     ssh) shift && run_ssh "$@" ;;
     console) console=true start ;;
     *) echo "Usage: $0 start|stop|ssh|console" ;;
