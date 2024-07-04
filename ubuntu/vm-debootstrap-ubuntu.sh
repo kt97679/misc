@@ -51,9 +51,15 @@ main() {
 /dev/sda2 / ext4 errors=remount-ro 0 1
 tmpfs /tmp tmpfs nosuid,nodev 0 0
 FSTAB
+    cat <<APT_CONF >/etc/apt/apt.conf.d/99_norecommends
+APT::Install-Recommends "false";
+APT::AutoRemove::RecommendsImportant "false";
+APT::AutoRemove::SuggestsImportant "false";
+APT_CONF
     chroot /mnt /bin/bash <<CHROOT
         apt-get update
         apt-get install -y --no-install-recommends grub2 linux-image-generic openssh-server systemd-sysv initramfs-tools sudo
+        sed -i -e 's/^\(GRUB_CMDLINE_LINUX_DEFAULT\).*/\1="console=ttyS0,115200n8"/' /etc/default/grub
         cat > /etc/systemd/network/80-dhcp.network <<NETWORK
 [Match]
 Name=en*
