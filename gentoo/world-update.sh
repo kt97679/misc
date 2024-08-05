@@ -33,7 +33,7 @@ ln -f /boot/zImage /boot/zImage.old
 cp arch/arm/boot/zImage /boot/zImage.new
 mv /boot/zImage.new /boot/zImage
 ln -f /boot/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.old
-cp arch/arm/boot/dts/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.new
+cp arch/arm/boot/dts/nvidia/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.new
 mv /boot/tegra124-jetson-tk1.dtb.new /boot/tegra124-jetson-tk1.dtb
 # removing all modules except for running kernel and installed sources
 ls -dt /lib/modules/* | grep -v -e $(uname -r) -e $(readlink /usr/src/linux|cut -f2- -d-) | xargs rm -rf
