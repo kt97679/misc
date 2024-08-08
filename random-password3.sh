@@ -1,6 +1,6 @@
 #!/bin/bash
 
-password_length=${1:-16}
+password_length=${1:-20}
 
 punct_symbols="~,./@#%&?=+_-"
 digit_symbols="0-9"
