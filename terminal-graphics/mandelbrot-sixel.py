@@ -26,6 +26,21 @@ def calculate_pixel_data(xmin, xmax, ymin, ymax, width, height):
         data.append(row)
     return data
 
+def compress_row(pixels):
+    out = []
+    prev_pixel = pixels[0]
+    pixel_count = 0
+    for pixel in pixels[1:]:
+        pixel_count += 1
+        if pixel != prev_pixel or pixel_count == 255:
+            if pixel_count > 3:
+                out.append(f"!{pixel_count}{prev_pixel}")
+            else:
+                out.append(prev_pixel * pixel_count)
+            pixel_count = 0
+            prev_pixel = pixel
+    out.append(f"!{pixel_count}{prev_pixel}")
+    return "".join(out)
 
 def prepare_sixel(pixel_data, width, height):
     # enter sixel mode
@@ -54,7 +69,7 @@ def prepare_sixel(pixel_data, width, height):
                 row[c][x] = chr(ord(row[c][x]) + (1 << yy))
         for color, pixels in row.items():
             # output sixel string for each color
-            out_buf.append('#{}{}$'.format(color, ''.join(pixels)))
+            out_buf.append('#{}{}$'.format(color, compress_row(pixels)))
         # go to the new line when we are done
         out_buf.append('-')
     # exit sixel mode
