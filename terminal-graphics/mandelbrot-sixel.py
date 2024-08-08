@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+# run this script in the xterm started as follows:
+# xterm -xrm "XTerm*decTerminalID: vt340" -xrm "XTerm*numColorRegisters: 256"
+
 MAX_ITERATIONS = 1000
 COLOR_LEVELS = 6
 NUMBER_OF_COLORS = COLOR_LEVELS ** 3
