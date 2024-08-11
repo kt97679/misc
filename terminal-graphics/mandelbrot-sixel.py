@@ -29,20 +29,17 @@ def calculate_pixel_data(xmin, xmax, ymin, ymax, width, height):
         data.append(row)
     return data
 
-def compress_row(pixels):
+def compress_row(sixels):
     out = []
-    prev_pixel = pixels[0]
-    pixel_count = 0
-    for pixel in pixels[1:]:
-        pixel_count += 1
-        if pixel != prev_pixel or pixel_count == 255:
-            if pixel_count > 3:
-                out.append(f"!{pixel_count}{prev_pixel}")
-            else:
-                out.append(prev_pixel * pixel_count)
-            pixel_count = 0
-            prev_pixel = pixel
-    out.append(f"!{pixel_count}{prev_pixel}")
+    prev_sixel = sixels[0]
+    sixel_count = 0
+    # appending None to the end of list to avoid processing of the last prev_sixel after loop is done
+    for sixel in sixels[1:] + [None]:
+        sixel_count += 1
+        if sixel != prev_sixel:
+            out.append(f"!{sixel_count}{prev_sixel}" if sixel_count > 3 else prev_sixel * sixel_count)
+            sixel_count = 0
+            prev_sixel = sixel
     return "".join(out)
 
 def prepare_sixel(pixel_data, width, height):
@@ -70,9 +67,9 @@ def prepare_sixel(pixel_data, width, height):
                     row[c] = ['?'] * width
                 # here we update symbol in the sixel string by setting appropriate pixel
                 row[c][x] = chr(ord(row[c][x]) + (1 << yy))
-        for color, pixels in row.items():
+        for color, sixels in row.items():
             # output sixel string for each color
-            out_buf.append('#{}{}$'.format(color, compress_row(pixels)))
+            out_buf.append('#{}{}$'.format(color, compress_row(sixels)))
         # go to the new line when we are done
         out_buf.append('-')
     # exit sixel mode
