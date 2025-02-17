@@ -190,9 +190,13 @@ void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf) {
     }
 }
 
-int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state) {
+int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state, char *password) {
     int head_length = get_random_byte(state) + 1; // 1-256 random bytes at the head of the file
+    int i = 0;
 
+    for (uint8_t *p = password; *p != 0; p++, i++) {
+        initial_state ^= ((uint64_t)(*p) << BITS_IN_BYTE * (i % BYTES_IN_UINT64_T));
+    }
     for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
         buf[i] = (initial_state >> ((BYTES_IN_UINT64_T - 1 - i) * BITS_IN_BYTE)) & BYTE_MASK;
     }
@@ -213,29 +217,34 @@ void encrypt(struct params_s *params) {
     int head_length;
 
     prepare_state(params->password, state, initial_state);
-    head_length = generate_head(state, buf, initial_state);
+    head_length = generate_head(state, buf, initial_state, params->password);
     write_or_die(params->out_file, buf, head_length, "Error: failed to write head data.");
     read_xor_write(params->in_file, params->out_file, state, buf);
 }
 
-uint64_t read_initial_state(int in_file) {
+uint64_t read_initial_state(int in_file, char *password) {
     uint64_t initial_state = 0;
     uint8_t buf[BYTES_IN_UINT64_T];
     int bytes_read_count = 0;
+    int i = 0;
 
     bytes_read_count = read_or_die(in_file, buf, BYTES_IN_UINT64_T, "Error: failed to read initial state.");
     if (bytes_read_count != BYTES_IN_UINT64_T) {
         fprintf(stderr, "Error: initial state should be %d bytes, got %d bytes instead.\n", BYTES_IN_UINT64_T, bytes_read_count);
         exit(1);
     }
-    for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
+    for (i = 0; i < BYTES_IN_UINT64_T; i++) {
         initial_state = (initial_state << BITS_IN_BYTE) | buf[i];
+    }
+    i = 0;
+    for (uint8_t *p = password; *p != 0; p++, i++) {
+        initial_state ^= ((uint64_t)(*p) << BITS_IN_BYTE * (i % BYTES_IN_UINT64_T));
     }
     return initial_state;
 }
 
 void decrypt(struct params_s *params) {
-    uint64_t initial_state = read_initial_state(params->in_file);
+    uint64_t initial_state = read_initial_state(params->in_file, params->password);
     uint64_t state[PCG32_STATE_SIZE];
     uint8_t buf[BUFSIZE];
     int head_length;
@@ -243,7 +252,7 @@ void decrypt(struct params_s *params) {
 
     prepare_state(params->password, state, initial_state);
     // we use same generate_head() function as in encrypt() to have same state
-    head_length = generate_head(state, buf, initial_state) - BYTES_IN_UINT64_T; // - BYTES_IN_UINT64_T because of read_initial_state() above
+    head_length = generate_head(state, buf, initial_state, params->password) - BYTES_IN_UINT64_T; // - BYTES_IN_UINT64_T because of read_initial_state() above
     bytes_read_count = read_or_die(params->in_file, buf, head_length, "Error: failed to read head data.");
     if (bytes_read_count != head_length) {
         fprintf(stderr, "Error: head data should be %d bytes, got %d bytes instead.\n", head_length, bytes_read_count);
