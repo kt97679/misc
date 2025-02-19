@@ -16,11 +16,11 @@ output │seed     ││random data   ││data     │                    │
                          │           │                     │random number│           
                          └───────────┼─────────────────────┼generator    │           
                                      │                     └─────┬───────┘           
-                                   ┌─┴─┐                         │                   
-                 ─────────────────►│XOR│◄────────────────────────┘                   
-                  input bytes      └───┘   random bytes                              
-                                                                                     
-                                                                                     
+                        ┌───┐    ┌───┴────┐                      │                   
+      ─────────────────►│XOR├───►│circular│◄─────────────────────┤                   
+       input bytes      └─▲─┘    │shift   │random bytes          │                   
+                          │      └────────┘                      │                   
+                          └──────────────────────────────────────┘                   
                                                                                      
         ┌─────────┐┌──────────────┐┌─────────┐                                       
  input  │encrypted││1-256 bytes of││encrypted│                                       
@@ -33,10 +33,14 @@ output │seed     ││random data   ││data     │                    │
            │                         │                 ▲      │                      
         ┌──┴───────────┐             │                 │      │                      
         │decryption key├─────────────┼─────────────────┘      │                      
-        └──────────────┘             │               ┌────────▼────┐                 
-                                     │   random bytes│random number│                 
-                                     │       ┌───────┤generator    │                 
-                                     │       ▼       └─────────────┘                 
-                     encrypted bytes │     ┌───┐                                     
+        └──────────────┘             │                        │                      
+                                     │                        │                      
+                                     │                        │                      
+                      encrypted bytes│                        │                      
+                               ┌─────▼──┐            ┌────────▼────┐                 
+                               │circular│random bytes│random number│                 
+                               │shift   │◄───┬───────┤generator    │                 
+                               └─────┬──┘    ▼       └─────────────┘                 
+                                     │     ┌───┐                                     
                                      └────►│XOR├────────────────────► decrypted bytes
                                            └───┘                                     

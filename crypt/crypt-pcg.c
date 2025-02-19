@@ -122,7 +122,7 @@ int parse_args(int argc, char *argv[], struct params_s *params ) {
     return 0;
 }
 
-uint8_t get_random_byte(uint64_t *state) {
+uint32_t get_random_uint32(uint64_t *state) {
     static uint32_t random_number = 0;
     uint32_t another_random_number = pcg32_random_r(state) ^ random_number;
     // if upper 4 bits of another_random_number are zero we generate new random_number
@@ -130,7 +130,7 @@ uint8_t get_random_byte(uint64_t *state) {
     if ((another_random_number >> 28) == 0) {
         random_number = pcg32_random_r(state + 2);
     }
-    return another_random_number & BYTE_MASK;
+    return another_random_number;
 }
 
 void prepare_state(uint8_t *password, uint64_t *state, uint64_t initial_state) {
@@ -176,22 +176,33 @@ ssize_t write_or_die(int fd, void *buf, size_t count, char *message) {
     return write_count;
 }
 
-void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf) {
+void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf, int action) {
     int bytes_read_count = 0;
+    int shift = 0;
+    uint32_t random32 = 0;
+    uint8_t random8 = 0;
 
-    // TODO xor current char with previous char
     while (1) {
         bytes_read_count = read_or_die(in_file, buf, BUFSIZE, "Error: failed to read data.");
         if (bytes_read_count == 0) break;
         for (int i = 0; i < bytes_read_count; i++) {
-            buf[i] ^= get_random_byte(state);
+            random32 = get_random_uint32(state);
+            random8 = random32 & BYTE_MASK;
+            shift = (random32 >> BITS_IN_BYTE) % BITS_IN_BYTE;
+            if (action == DECRYPT_ACTION) {
+                buf[i] = (buf[i] << shift)| (buf[i] >> (BITS_IN_BYTE - shift));
+            }
+            buf[i] ^= random8;
+            if (action == ENCRYPT_ACTION) {
+                buf[i] = (buf[i] >> shift)| (buf[i] << (BITS_IN_BYTE - shift));
+            }
         }
         write_or_die(out_file, buf, bytes_read_count, "Error: failed to write data.");
     }
 }
 
 int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state, char *password) {
-    int head_length = get_random_byte(state) + 1; // 1-256 random bytes at the head of the file
+    int head_length = (get_random_uint32(state) & BYTE_MASK) + 1; // 1-256 random bytes at the head of the file
     int i = 0;
 
     for (uint8_t *p = password; *p != 0; p++, i++) {
@@ -202,10 +213,10 @@ int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state, char *p
     }
     // to avoid continuous data in the header we skip bytes while filling in the buffer
     for (int i = 0; i < head_length; i++) {
-        for (int j = get_random_byte(state); j > 0; j--) {
-            get_random_byte(state);
+        for (int j = (get_random_uint32(state) & BYTE_MASK); j > 0; j--) {
+            get_random_uint32(state);
         }
-        buf[i + BYTES_IN_UINT64_T] = get_random_byte(state);
+        buf[i + BYTES_IN_UINT64_T] = (get_random_uint32(state) & BYTE_MASK);
     }
     return head_length + BYTES_IN_UINT64_T;
 }
@@ -219,7 +230,7 @@ void encrypt(struct params_s *params) {
     prepare_state(params->password, state, initial_state);
     head_length = generate_head(state, buf, initial_state, params->password);
     write_or_die(params->out_file, buf, head_length, "Error: failed to write head data.");
-    read_xor_write(params->in_file, params->out_file, state, buf);
+    read_xor_write(params->in_file, params->out_file, state, buf, params->action);
 }
 
 uint64_t read_initial_state(int in_file, char *password) {
@@ -258,7 +269,7 @@ void decrypt(struct params_s *params) {
         fprintf(stderr, "Error: head data should be %d bytes, got %d bytes instead.\n", head_length, bytes_read_count);
         exit(1);
     }
-    read_xor_write(params->in_file, params->out_file, state, buf);
+    read_xor_write(params->in_file, params->out_file, state, buf, params->action);
 }
 
 int main(int argc, char *argv[]) {
