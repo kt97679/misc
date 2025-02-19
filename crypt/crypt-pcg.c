@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <sys/time.h>
+#include <time.h>
 #include <ctype.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -46,12 +46,6 @@ void usage(uint8_t *program_name) {
     printf("  stdin is used if -i is not specified\n");
     printf("  stdout is used if -o is not specified\n");
     exit(1);
-}
-
-uint64_t generate_initial_state() {
-    struct timeval t;
-    gettimeofday(&t, NULL);
-    return (uint64_t)(t.tv_usec * t.tv_sec * getpid() * getppid());
 }
 
 int parse_args(int argc, char *argv[], struct params_s *params ) {
@@ -133,28 +127,69 @@ uint32_t get_random_uint32(uint64_t *state) {
     return another_random_number;
 }
 
-void prepare_state(uint8_t *password, uint64_t *state, uint64_t initial_state) {
+void generate_state(uint64_t *state, uint64_t *initial_state) {
+    struct timespec ts;
+    uint64_t x1, x2, x3, x4, x5;
+
+    // uptime
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        fprintf(stderr, "Error: clock_gettime(CLOCK_MONOTONIC) failed with %s\n", strerror(errno));
+        exit(1);
+    }
+    x1 = ts.tv_sec;
+    x2 = ts.tv_nsec;
+
+    // seconds since epoch
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        fprintf(stderr, "Error: clock_gettime(CLOCK_REALTIME,) failed with %s\n", strerror(errno));
+        exit(1);
+    }
+    x3 = ts.tv_sec;
+    x4 = ts.tv_nsec;
+
+    // process run time
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0) {
+        fprintf(stderr, "Error: clock_gettime(CLOCK_PROCESS_CPUTIME_ID) failed with %s\n", strerror(errno));
+        exit(1);
+    }
+    x5 = ts.tv_nsec;
+    state[0] = x1 * x2;
+    state[1] = x1 * x4;
+    state[2] = x3 * x2;
+    state[3] = x3 * x4;
+
+    for (int i = 0; i < PCG32_STATE_SIZE; i++) {
+        int shift = x5 % (BITS_IN_BYTE * BYTES_IN_UINT64_T);
+        state[i] = state[i] ^ (state[i] << shift | (state[i] >> (BITS_IN_BYTE * BYTES_IN_UINT64_T - shift)));
+        initial_state[i] = state[i];
+        x5 /= (BITS_IN_BYTE * BYTES_IN_UINT64_T);
+    }
+}
+
+void warm_up_generator(uint8_t *password, uint64_t *state) {
+    uint64_t warm_up_count = 0;
+
+    for (uint8_t *p = password; *p != 0; p++) {
+        warm_up_count = (warm_up_count * 2) + (*p);
+    }
+
+    for (int i = 0; i < warm_up_count; i++) {
+        for (int j = 0; j < PCG32_STATE_SIZE; j += 2) {
+            pcg32_random_r(state + j);
+        }
+    }
+}
+
+void apply_password_to_initial_state(uint8_t *password, uint64_t *initial_state) {
     int byte_index = 0;
     int word_index = 0;
-    uint64_t warm_up_count = 0;
     int i = 0;
-
-    for (i = 0; i < PCG32_STATE_SIZE; i++) {
-        state[i] = initial_state ^ (initial_state << (i + 1) | (initial_state >> (BITS_IN_BYTE * BYTES_IN_UINT64_T - (i + 1))));
-    }
 
     for (uint8_t *p = password; *p != 0; p++) {
         word_index = i % PCG32_STATE_SIZE;
         byte_index = i / PCG32_STATE_SIZE;
-        state[word_index] ^= ((uint64_t)(*p) << (BITS_IN_BYTE * byte_index));
-        warm_up_count = (warm_up_count * 2) + (*p);
+        initial_state[word_index] ^= ((uint64_t)(*p) << (BITS_IN_BYTE * byte_index));
         i = (i + 1) % (PCG32_STATE_SIZE * BYTES_IN_UINT64_T);
-    }
-
-    for (i = 0; i < warm_up_count; i++) {
-        for (int j = 0; j < PCG32_STATE_SIZE; j += 2) {
-            pcg32_random_r(state + j);
-        }
     }
 }
 
@@ -201,69 +236,66 @@ void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf, in
     }
 }
 
-int generate_head(uint64_t *state, uint8_t *buf, uint64_t initial_state, char *password) {
+int generate_head(uint64_t *state, uint8_t *buf, uint64_t *initial_state, char *password) {
     int head_length = (get_random_uint32(state) & BYTE_MASK) + 1; // 1-256 random bytes at the head of the file
-    int i = 0;
 
-    for (uint8_t *p = password; *p != 0; p++, i++) {
-        initial_state ^= ((uint64_t)(*p) << BITS_IN_BYTE * (i % BYTES_IN_UINT64_T));
-    }
-    for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
-        buf[i] = (initial_state >> ((BYTES_IN_UINT64_T - 1 - i) * BITS_IN_BYTE)) & BYTE_MASK;
+    for (int j = 0; j < PCG32_STATE_SIZE; j++) {
+        for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
+            buf[i + j * BYTES_IN_UINT64_T] = (initial_state[j] >> ((BYTES_IN_UINT64_T - 1 - i) * BITS_IN_BYTE)) & BYTE_MASK;
+        }
     }
     // to avoid continuous data in the header we skip bytes while filling in the buffer
     for (int i = 0; i < head_length; i++) {
         for (int j = (get_random_uint32(state) & BYTE_MASK); j > 0; j--) {
             get_random_uint32(state);
         }
-        buf[i + BYTES_IN_UINT64_T] = (get_random_uint32(state) & BYTE_MASK);
+        buf[i + BYTES_IN_UINT64_T * PCG32_STATE_SIZE] = (get_random_uint32(state) & BYTE_MASK);
     }
-    return head_length + BYTES_IN_UINT64_T;
+    return head_length + BYTES_IN_UINT64_T * PCG32_STATE_SIZE;
 }
 
 void encrypt(struct params_s *params) {
-    uint64_t initial_state = generate_initial_state();
     uint64_t state[PCG32_STATE_SIZE];
+    uint64_t initial_state[PCG32_STATE_SIZE];
     uint8_t buf[BUFSIZE];
     int head_length;
 
-    prepare_state(params->password, state, initial_state);
+    generate_state(state, initial_state);
+    apply_password_to_initial_state(params->password, initial_state);
+    warm_up_generator(params->password, state);
     head_length = generate_head(state, buf, initial_state, params->password);
     write_or_die(params->out_file, buf, head_length, "Error: failed to write head data.");
     read_xor_write(params->in_file, params->out_file, state, buf, params->action);
 }
 
-uint64_t read_initial_state(int in_file, char *password) {
-    uint64_t initial_state = 0;
-    uint8_t buf[BYTES_IN_UINT64_T];
+void read_initial_state(int in_file, uint64_t *initial_state) {
+    uint8_t buf[BYTES_IN_UINT64_T * PCG32_STATE_SIZE];
     int bytes_read_count = 0;
     int i = 0;
 
-    bytes_read_count = read_or_die(in_file, buf, BYTES_IN_UINT64_T, "Error: failed to read initial state.");
-    if (bytes_read_count != BYTES_IN_UINT64_T) {
-        fprintf(stderr, "Error: initial state should be %d bytes, got %d bytes instead.\n", BYTES_IN_UINT64_T, bytes_read_count);
+    bytes_read_count = read_or_die(in_file, buf, BYTES_IN_UINT64_T * PCG32_STATE_SIZE, "Error: failed to read initial state.");
+    if (bytes_read_count != BYTES_IN_UINT64_T * PCG32_STATE_SIZE) {
+        fprintf(stderr, "Error: initial state should be %d bytes, got %d bytes instead.\n", BYTES_IN_UINT64_T * PCG32_STATE_SIZE, bytes_read_count);
         exit(1);
     }
-    for (i = 0; i < BYTES_IN_UINT64_T; i++) {
-        initial_state = (initial_state << BITS_IN_BYTE) | buf[i];
+    for (int j = 0; j < PCG32_STATE_SIZE; j++) {
+        for (int i = 0; i < BYTES_IN_UINT64_T; i++) {
+            initial_state[j] = (initial_state[j] << BITS_IN_BYTE) | buf[i + j * BYTES_IN_UINT64_T];
+        }
     }
-    i = 0;
-    for (uint8_t *p = password; *p != 0; p++, i++) {
-        initial_state ^= ((uint64_t)(*p) << BITS_IN_BYTE * (i % BYTES_IN_UINT64_T));
-    }
-    return initial_state;
 }
 
 void decrypt(struct params_s *params) {
-    uint64_t initial_state = read_initial_state(params->in_file, params->password);
     uint64_t state[PCG32_STATE_SIZE];
     uint8_t buf[BUFSIZE];
     int head_length;
     int bytes_read_count = 0;
 
-    prepare_state(params->password, state, initial_state);
+    read_initial_state(params->in_file, state);
+    apply_password_to_initial_state(params->password, state);
+    warm_up_generator(params->password, state);
     // we use same generate_head() function as in encrypt() to have same state
-    head_length = generate_head(state, buf, initial_state, params->password) - BYTES_IN_UINT64_T; // - BYTES_IN_UINT64_T because of read_initial_state() above
+    head_length = generate_head(state, buf, state, params->password) - BYTES_IN_UINT64_T * PCG32_STATE_SIZE; // - (BYTES_IN_UINT64_T * PCG32_STATE_SIZE) because of read_initial_state() above
     bytes_read_count = read_or_die(params->in_file, buf, head_length, "Error: failed to read head data.");
     if (bytes_read_count != head_length) {
         fprintf(stderr, "Error: head data should be %d bytes, got %d bytes instead.\n", head_length, bytes_read_count);
