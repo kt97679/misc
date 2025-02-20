@@ -147,16 +147,11 @@ void generate_state(uint64_t *state, uint64_t *initial_state) {
     x3 = ts.tv_sec;
     x4 = ts.tv_nsec;
 
-    // process run time
-    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0) {
-        fprintf(stderr, "Error: clock_gettime(CLOCK_PROCESS_CPUTIME_ID) failed with %s\n", strerror(errno));
-        exit(1);
-    }
-    x5 = ts.tv_nsec;
     state[0] = x1 * x2;
     state[1] = x1 * x4;
     state[2] = x3 * x2;
     state[3] = x3 * x4;
+    x5 = state[0] ^ state[1] ^ state[2] ^ state[3] ^ getpid();
 
     for (int i = 0; i < PCG32_STATE_SIZE; i++) {
         int shift = x5 % (BITS_IN_BYTE * BYTES_IN_UINT64_T);
