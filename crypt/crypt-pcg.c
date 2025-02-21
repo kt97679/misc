@@ -128,36 +128,32 @@ uint32_t get_random_uint32(uint64_t *state) {
 }
 
 void generate_state(uint64_t *state, uint64_t *initial_state) {
-    struct timespec ts;
-    uint64_t x1, x2, x3, x4, x5;
+    struct timespec ts_uptime, ts_epoch;
+    uint64_t shift_data;
 
     // uptime
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+    if (clock_gettime(CLOCK_MONOTONIC, &ts_uptime) != 0) {
         fprintf(stderr, "Error: clock_gettime(CLOCK_MONOTONIC) failed with %s\n", strerror(errno));
         exit(1);
     }
-    x1 = ts.tv_sec;
-    x2 = ts.tv_nsec;
 
     // seconds since epoch
-    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+    if (clock_gettime(CLOCK_REALTIME, &ts_epoch) != 0) {
         fprintf(stderr, "Error: clock_gettime(CLOCK_REALTIME,) failed with %s\n", strerror(errno));
         exit(1);
     }
-    x3 = ts.tv_sec;
-    x4 = ts.tv_nsec;
+    state[0] = ts_uptime.tv_sec * ts_uptime.tv_nsec;
+    state[1] = ts_uptime.tv_sec * ts_epoch.tv_nsec;
+    state[2] = ts_epoch.tv_sec * ts_uptime.tv_nsec;
+    state[3] = ts_epoch.tv_sec * ts_epoch.tv_nsec;
 
-    state[0] = x1 * x2;
-    state[1] = x1 * x4;
-    state[2] = x3 * x2;
-    state[3] = x3 * x4;
-    x5 = state[0] ^ state[1] ^ state[2] ^ state[3] ^ getpid();
+    shift_data = state[0] ^ state[1] ^ state[2] ^ state[3] ^ getpid();
 
     for (int i = 0; i < PCG32_STATE_SIZE; i++) {
-        int shift = x5 % (BITS_IN_BYTE * BYTES_IN_UINT64_T);
+        int shift = shift_data % (BITS_IN_BYTE * BYTES_IN_UINT64_T);
         state[i] = state[i] ^ (state[i] << shift | (state[i] >> (BITS_IN_BYTE * BYTES_IN_UINT64_T - shift)));
         initial_state[i] = state[i];
-        x5 /= (BITS_IN_BYTE * BYTES_IN_UINT64_T);
+        shift_data /= (BITS_IN_BYTE * BYTES_IN_UINT64_T);
     }
 }
 
