@@ -172,15 +172,13 @@ void warm_up_generator(uint8_t *password, uint64_t *state) {
 }
 
 void apply_password_to_initial_state(uint8_t *password, uint64_t *initial_state) {
-    int byte_index = 0;
-    int word_index = 0;
     int i = 0;
+    uint64_t mix = 0;
 
     for (uint8_t *p = password; *p != 0; p++) {
-        word_index = i % PCG32_STATE_SIZE;
-        byte_index = i / PCG32_STATE_SIZE;
-        initial_state[word_index] ^= ((uint64_t)(*p) << (BITS_IN_BYTE * byte_index));
-        i = (i + 1) % (PCG32_STATE_SIZE * BYTES_IN_UINT64_T);
+        mix = (mix * (*p)) ^ (*p);
+        initial_state[i] ^= mix;
+        i = (i + 1) % PCG32_STATE_SIZE;
     }
 }
 
@@ -216,11 +214,11 @@ void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf, in
             random8 = random32 & BYTE_MASK;
             shift = (random32 >> BITS_IN_BYTE) % BITS_IN_BYTE;
             if (action == DECRYPT_ACTION) {
-                buf[i] = (buf[i] << shift)| (buf[i] >> (BITS_IN_BYTE - shift));
+                buf[i] = (buf[i] << shift)|(buf[i] >> (BITS_IN_BYTE - shift));
             }
             buf[i] ^= random8;
             if (action == ENCRYPT_ACTION) {
-                buf[i] = (buf[i] >> shift)| (buf[i] << (BITS_IN_BYTE - shift));
+                buf[i] = (buf[i] >> shift)|(buf[i] << (BITS_IN_BYTE - shift));
             }
         }
         write_or_die(out_file, buf, bytes_read_count, "Error: failed to write data.");
