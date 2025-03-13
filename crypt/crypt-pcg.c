@@ -139,7 +139,7 @@ void generate_state(uint64_t *state, uint64_t *initial_state) {
 
     // seconds since epoch
     if (clock_gettime(CLOCK_REALTIME, &ts_epoch) != 0) {
-        fprintf(stderr, "Error: clock_gettime(CLOCK_REALTIME,) failed with %s\n", strerror(errno));
+        fprintf(stderr, "Error: clock_gettime(CLOCK_REALTIME) failed with %s\n", strerror(errno));
         exit(1);
     }
     state[0] = ts_uptime.tv_sec * ts_uptime.tv_nsec;
