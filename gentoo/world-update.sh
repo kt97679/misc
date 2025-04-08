@@ -38,7 +38,7 @@ mv /boot/tegra124-jetson-tk1.dtb.new /boot/tegra124-jetson-tk1.dtb
 # removing all modules except for running kernel and installed sources
 ls -dt /lib/modules/* | grep -v -e $(uname -r) -e $(readlink /usr/src/linux|cut -f2- -d-) | xargs rm -rf
 # if our root is on the emmc - exit
-mount | grep -q ^/dev/mmcblk1p1 && exit
+mount | grep -q ^/dev/mmcblk0p1 && exit
 # if our root is somewhere else sync to emmc
 mount /dev/mmcblk0p1 /mnt
 rsync -avp --one-file-system --delete / /mnt/
