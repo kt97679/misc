@@ -200,9 +200,37 @@ ssize_t write_or_die(int fd, void *buf, size_t count, char *message) {
     return write_count;
 }
 
+uint8_t shuffle(uint8_t val, uint8_t factor) {
+    uint8_t j;
+    uint8_t bit1;
+    uint8_t bit2;
+    for (uint8_t i = 7; i > 0; i--) {
+        j = factor % (i + 1);
+        bit1 = ((val >> i) & 1);
+        bit2 = ((val >> j) & 1);
+        val &= ((~(1 << j)) & (~(1 << i)) & 0xff);
+        val |= ((bit1 << j) | (bit2 << i));
+    }
+    return val;
+}
+
+uint8_t unshuffle(uint8_t val, uint8_t factor) {
+    uint8_t j;
+    uint8_t bit1;
+    uint8_t bit2;
+    for (uint8_t i = 1; i <= 7; i++) {
+        j = factor % (i + 1);
+        bit1 = ((val >> i) & 1);
+        bit2 = ((val >> j) & 1);
+        val &= ((~(1 << j)) & (~(1 << i)) & 0xff);
+        val |= ((bit1 << j) | (bit2 << i));
+    }
+    return val;
+}
+
 void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf, int action) {
     int bytes_read_count = 0;
-    int shift = 0;
+    int factor = 0;
     uint32_t random32 = 0;
     uint8_t random8 = 0;
 
@@ -212,13 +240,13 @@ void read_xor_write(int in_file, int out_file, uint64_t *state, uint8_t *buf, in
         for (int i = 0; i < bytes_read_count; i++) {
             random32 = get_random_uint32(state);
             random8 = random32 & BYTE_MASK;
-            shift = (random32 >> BITS_IN_BYTE) % BITS_IN_BYTE;
+            factor = (random32 >> BITS_IN_BYTE) & BYTE_MASK;
             if (action == DECRYPT_ACTION) {
-                buf[i] = (buf[i] << shift)|(buf[i] >> (BITS_IN_BYTE - shift));
+                buf[i] = unshuffle(buf[i], factor);
             }
             buf[i] ^= random8;
             if (action == ENCRYPT_ACTION) {
-                buf[i] = (buf[i] >> shift)|(buf[i] << (BITS_IN_BYTE - shift));
+                buf[i] = shuffle(buf[i], factor);
             }
         }
         write_or_die(out_file, buf, bytes_read_count, "Error: failed to write data.");
