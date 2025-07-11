@@ -4,8 +4,10 @@
 
 [ -z "$PS1" ] && return
 
+_SHELL=$SHELL
 ((SHLVL == 1)) && [ -r /etc/profile ] && . /etc/profile
 [ -r /etc/skel/.bashrc ] && . <(grep -v "^HIST.*SIZE=" /etc/skel/.bashrc)
+SHELL=$_SHELL && unset _SHELL
 [ -d "$HOME/bin" ] && [[ ":$PATH:" != *":$HOME/bin:"* ]] && PATH="$HOME/bin:$PATH"
 
 HISTSIZE=$((1024 * 1024))
@@ -16,7 +18,7 @@ HISTCONTROL=ignoreboth
 update_eternal_history() {
     local histfile_size=$(stat -c %s $HISTFILE 2>/dev/null || echo 0) bash_history=~/.bash_eternal_history old_umask=$(umask)
     history -a
-    ((histfile_size == $(stat -c %s $HISTFILE))) && return
+    ((histfile_size == $(stat -c %s $HISTFILE 2>/dev/null || echo 0))) && return
     [ -p ${SHELL}.history ] && bash_history=${SHELL}.history
     umask 077 && echo -e "${USER}\t${HOSTNAME}\t${PWD}\t$(history 1)" >> $bash_history && umask $old_umask
 }
@@ -52,10 +54,11 @@ sshb() {
         local bashrc=~/.bashrc
         local bash_history=~/.bash_eternal_history
         local bash_ssh=.$LOGNAME.bash-ssh
+        [[ $SHELL =~ .*bash-ssh$ ]] && bash_ssh=$(basename $SHELL)
         local bash_ssh_history=${bash_ssh}.history
         [ -r ~/$bash_ssh ] && bashrc=~/$bash_ssh && bash_history=~/$bash_ssh_history
-        $ssh placeholder "cat >~/$bash_ssh; [ -p ~/$bash_ssh_history ] && exit; rm -f ~/$bash_ssh_history; mkfifo -m 0600 ~/$bash_ssh_history" < $bashrc
-        ( $ssh -n placeholder "tail -f ~/$bash_ssh_history" | while read; do echo "$REPLY" >> $bash_history; done & ) &> /dev/null
+        $ssh placeholder "cat >~/$bash_ssh; [ -p ~/$bash_ssh_history ] || mkfifo -m 0600 ~/$bash_ssh_history" < $bashrc
+        ( $ssh -n placeholder "tail -f ~/$bash_ssh_history" | while read -r; do echo "$REPLY" >> $bash_history; done & ) &> /dev/null
         $ssh -t "${ssh_args[@]}" "SHELL=~/$bash_ssh; chmod +x \$SHELL; exec bash --rcfile \$SHELL -i"
     fi
     $ssh placeholder -O exit &> /dev/null
