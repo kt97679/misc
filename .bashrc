@@ -54,7 +54,7 @@ sshb() {
         local bashrc=~/.bashrc
         local bash_history=~/.bash_eternal_history
         local bash_ssh=.$LOGNAME.bash-ssh
-        [[ $SHELL =~ .*bash-ssh$ ]] && bash_ssh=$(basename $SHELL)
+        [[ $SHELL =~ .*bash-ssh$ ]] && bash_ssh=$(basename $SHELL) # because we may have nested ssh sessions with different user names
         local bash_ssh_history=${bash_ssh}.history
         [ -r ~/$bash_ssh ] && bashrc=~/$bash_ssh && bash_history=~/$bash_ssh_history
         $ssh placeholder "cat >~/$bash_ssh; [ -p ~/$bash_ssh_history ] || mkfifo -m 0600 ~/$bash_ssh_history" < $bashrc
