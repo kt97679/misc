@@ -2,7 +2,7 @@
 
 set -eu -o pipefail
 
-FFMPEG_HOME=$HOME/Downloads/ffmpeg-git-20240629-amd64-static
+FFMPEG_HOME=$HOME/Downloads/ffmpeg-master-latest-linux64-gpl/bin/
 CRF=20
 
 src="$@"
