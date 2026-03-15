@@ -29,6 +29,7 @@ alias c=cat
 alias h='history $((LINES - 1))'
 alias l="ls -aFC"
 alias ll="ls -aFl"
+alias lt="ls -aFlt"
 alias m=less
 alias cp="cp -i"
 alias mv="mv -i"
