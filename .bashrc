@@ -34,7 +34,7 @@ alias m=less
 alias cp="cp -i"
 alias mv="mv -i"
 
-bak() { cp $1 $1.$(date +%%F_%T); }
+bak() { cp $1 $1.$(date +%F_%T); }
 doh() { curl -s -H 'accept: application/dns+json' "https://dns.google.com/resolve?name=$1" | jq; }
 sshb() {
     local ssh="ssh -S $(mktemp --dry-run ~/.ssh/control-socket.XXXXXXXX)"
