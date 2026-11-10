@@ -3,7 +3,7 @@
 set -ue
 
 # eMMC partition the system is copied to (find it with: blkid /dev/mmcblk*p1)
-emmc=UUID=d010c421-05bf-4943-b7e6-3bd4deb18df1
+emmc=UUID=put-the-emmc-uuid-here
 
 ((UID == 0)) || exec sudo "$0" "$@"
 
@@ -12,7 +12,7 @@ exec &> >(tee "/var/log/$(basename "$0").log")
 #until emerge --sync ; do sleep 10; done
 emerge -uDNav @world
 emerge @preserved-rebuild
-emerge -av --depclean
+emerge -a --depclean
 # remove obsolete files from the distfiles directory
 eclean-dist --deep
 
