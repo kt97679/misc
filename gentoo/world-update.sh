@@ -2,45 +2,44 @@
 
 set -ue
 
-((UID != 0)) && exec sudo $0
+# eMMC partition the system is copied to (find it with: blkid /dev/mmcblk*p1)
+emmc=UUID=d010c421-05bf-4943-b7e6-3bd4deb18df1
 
-exec &> >(tee /tmp/$(basename $0).log)
+((UID == 0)) || exec sudo "$0" "$@"
 
-cpu_cores="$(grep -c ^processor /proc/cpuinfo)"
+exec &> >(tee "/var/log/$(basename "$0").log")
 
 #until emerge --sync ; do sleep 10; done
-emerge --jobs=$cpu_cores -uDNav world
-emerge --jobs=$cpu_cores @preserved-rebuild
-emerge --jobs=$cpu_cores -uDNav --with-bdeps=y @world
-emerge --jobs=$cpu_cores --depclean
-# remove obsolete files from the /usr/portage/distfiles
+emerge -uDNav @world
+emerge @preserved-rebuild
+emerge -av --depclean
+# remove obsolete files from the distfiles directory
 eclean-dist --deep
 
-# system update is done now let's check if we need to build new kernel
-usr_src_linux_old=$(readlink -f /usr/src/linux)
-eselect kernel set 1
-usr_src_linux_new=$(readlink -f /usr/src/linux)
-[ "$usr_src_linux_old" == "$usr_src_linux_new" ] && exit
-# symlink was updated, let's remove old sources (if any) and build new kernel
-[ -n "$usr_src_linux_old" ] && rm -rf "$usr_src_linux_old"
+# point /usr/src/linux at the newest sources and delete the older trees
+eselect kernel set "$(eselect kernel list | grep -c '^ *\[')"
+for d in /usr/src/linux-*; do [ "$d" -ef /usr/src/linux ] || rm -rf "$d"; done
+release=$(readlink /usr/src/linux | cut -f2- -d-)
+# nothing to do if this kernel was already built and installed
+[ -d "/lib/modules/$release" ] && exit
 cd /usr/src/linux
-# current kernel config is used
-zcat /proc/config.gz > /usr/src/linux/.config
-# if new kernel options were added we use default settings
-make olddefconfig && make -j $cpu_cores
-make INSTALL_MOD_STRIP=1 modules_install
+# current kernel config is used, new options get their default settings
+zcat /proc/config.gz > .config
+make olddefconfig
+make -j "$(nproc)"
 ln -f /boot/zImage /boot/zImage.old
 cp arch/arm/boot/zImage /boot/zImage.new
 mv /boot/zImage.new /boot/zImage
 ln -f /boot/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.old
 cp arch/arm/boot/dts/nvidia/tegra124-jetson-tk1.dtb /boot/tegra124-jetson-tk1.dtb.new
 mv /boot/tegra124-jetson-tk1.dtb.new /boot/tegra124-jetson-tk1.dtb
-# removing all modules except for running kernel and installed sources
-ls -dt /lib/modules/* | grep -v -e $(uname -r) -e $(readlink /usr/src/linux|cut -f2- -d-) | xargs rm -rf
+# installed last, so /lib/modules/$release only exists after a complete install
+make INSTALL_MOD_STRIP=1 modules_install
+# removing all modules except for the running kernel and the new one
+ls -d /lib/modules/* | grep -v -e "$(uname -r)" -e "$release" | xargs rm -rf
 # if our root is on the emmc - exit
-mount | grep -q ^/dev/mmcblk && exit
+case $(findmnt -no SOURCE /) in /dev/mmcblk*) exit ;; esac
 # if our root is somewhere else sync to emmc
-mount /dev/mmcblk[01]p1 /mnt
-rsync -avp --one-file-system --delete / /mnt/
+mount "$emmc" /mnt
+rsync -aHAXv --one-file-system --delete / /mnt/
 umount /mnt
-
