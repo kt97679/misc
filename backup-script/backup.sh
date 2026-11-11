@@ -19,6 +19,11 @@
 # it is a ZFS dataset, live otherwise. Without ZFS, /home and /etc are copied live
 # in a single rsync.
 #
+# With SANOID_SNAPSHOTS=1 in the host's .config, backups of this machine are made
+# from sanoid's snapshots instead (see that setting): each run copies, oldest
+# first, every sanoid snapshot taken since the newest backup, so a drive that was
+# away gets the backups it missed.
+#
 # Before copying, the run checks that nothing which had files in the last backup
 # (/home, /etc, each copied tree, each home directory) is empty or missing now:
 # that usually means an unmounted or locked filesystem, and backing it up would
@@ -46,6 +51,7 @@
 #   4. with ZFS, snapshots the datasets; refuses if a source looks emptied
 #   5. copies into staging, deleting the oldest backups if the drive is full
 #   6. publishes staging as the new backup and applies retention
+# With SANOID_SNAPSHOTS, steps 3 to 6 are repeated for each backup the run makes.
 #
 # One-time setup of a btrfs drive (as root):
 #   mkfs.btrfs -L backup /dev/mapper/<name>
@@ -75,7 +81,7 @@ SCRIPT_NAME=${SCRIPT##*/}
 [[ -z ${WORK_DIR+set} ]] || die "WORK_DIR was renamed to BACKUP_ROOT"
 
 ((UID != 0)) && exec sudo \
-    --preserve-env=BACKUP_ROOT,EXPECTED_MOUNT_POINT,EXPECTED_MOUNT_SOURCE \
+    --preserve-env=BACKUP_ROOT,EXPECTED_MOUNT_POINT,EXPECTED_MOUNT_SOURCE,BACKUP_NOW \
     -- "$SCRIPT" "$HOST"
 
 RUN_STARTED=$(date +%s)
@@ -85,8 +91,9 @@ RUN_STARTED=$(date +%s)
 # group- or world-writable. The values here are the defaults.
 
 # Retention classes, "label interval keep". A new backup gets the longest-interval
-# label that is due (its newest backup is older than the interval), otherwise the
-# shortest. Each label keeps at most its newest <keep> backups, and none older
+# label that is due (its newest backup is older than the interval, give or take
+# half the time since the previous backup), otherwise the shortest. Each label
+# keeps at most its newest <keep> backups, and none older
 # than interval x keep (the newest backup of all is always kept). An interval is
 # seconds, or a number with a unit: s, m, h, d or w.
 RETENTION=(
@@ -110,12 +117,23 @@ EXCLUDES=()
 # versions of this script that didn't write one. With 1 they are given a marker
 # and kept as backups; with 0 they are left alone and not counted.
 ADOPT_UNMARKED_BACKUPS=1
+# With 1, backups of this machine are made from sanoid's snapshots (autosnap_*)
+# rather than from snapshots this script takes. Each run copies, oldest first,
+# every sanoid snapshot taken since the newest backup and present on all the
+# datasets it copies from, one backup per moment, skipping those retention would
+# delete right away. It takes a snapshot of its own only when BACKUP_NOW=1 is set,
+# or when sanoid has made none for twice the shortest retention interval. Needs
+# /home or /etc on ZFS.
+SANOID_SNAPSHOTS=0
 
 # --- Settings from the environment, needed before .config is read.
 BACKUP_ROOT=${BACKUP_ROOT:-${SCRIPT%/*}} # one directory per host in it; by default where this script is
 LOG_DIR=${LOG_DIR:-/var/log/backup-script}
 LOCK_DIR=${LOCK_DIR:-/run/lock/backup-script}
 MOUNTINFO=${MOUNTINFO:-/proc/self/mountinfo} # the mount table; replaceable for tests
+# With SANOID_SNAPSHOTS=1: 1 also backs up the current state, after copying any
+# new sanoid snapshots.
+BACKUP_NOW=${BACKUP_NOW:-0}
 # Also read by verify_backup_mount: EXPECTED_MOUNT_POINT, the mount BACKUP_ROOT
 # must be on (by default BACKUP_ROOT itself), and EXPECTED_MOUNT_SOURCE, the
 # device that must be mounted there (not checked if unset).
@@ -140,6 +158,7 @@ RSYNC_ERR=      # temporary file with rsync's error output
 ZFS_SNAPSHOT_NAME=
 ZFS_SNAPSHOTS_CREATED=0
 ZFS_DATASETS=() # datasets to snapshot; empty means a plain live rsync
+SANOID_NAMES=() SANOID_EPOCHS=() # with SANOID_SNAPSHOTS: what to copy, oldest first
 TREE_PATHS=()   # with ZFS: the trees to copy, parents before children
 TREE_SOURCES=() # with ZFS: where each tree is read from
 # RETENTION, parsed and sorted by interval (seconds), shortest first.
@@ -246,6 +265,8 @@ validate_config() {
         die "MIN_PER_LABEL_WHEN_FULL must be a number: $MIN_PER_LABEL_WHEN_FULL"
     FREE_INODE_RESERVE=$((10#$FREE_INODE_RESERVE)) MIN_PER_LABEL_WHEN_FULL=$((10#$MIN_PER_LABEL_WHEN_FULL))
     [[ $ADOPT_UNMARKED_BACKUPS =~ ^[01]$ ]] || die "ADOPT_UNMARKED_BACKUPS must be 0 or 1: $ADOPT_UNMARKED_BACKUPS"
+    [[ $SANOID_SNAPSHOTS =~ ^[01]$ ]] || die "SANOID_SNAPSHOTS must be 0 or 1: $SANOID_SNAPSHOTS"
+    [[ $BACKUP_NOW =~ ^[01]$ ]] || die "BACKUP_NOW must be 0 or 1: $BACKUP_NOW"
     for pattern in "${EXCLUDES[@]}"; do
         [[ $pattern ]] || die "empty pattern in EXCLUDES"
         [[ $pattern != /* ]] || die "EXCLUDES patterns must not start with /: $pattern"
@@ -465,17 +486,21 @@ mark_legacy_backups_complete() {
 
 # --- Retention.
 
-# Sets NEW_LABEL: the longest-interval label whose newest backup is older than
-# its interval, or the shortest label if none is due.
+# Sets NEW_LABEL: the longest-interval label that is due, or the shortest label if
+# none is. A label is due when its newest backup is older than its interval, less
+# half the time since the previous backup. So a run that comes a little early,
+# like a nightly run that starts a few seconds earlier than the night before,
+# still counts, and runs every hour still make one daily backup per 24 hours.
 choose_label() {
-    local c i last_epoch
+    local c i last_epoch slack=0
 
+    ((${#BACKUP_EPOCHS[@]} == 0)) || slack=$(((NEW_EPOCH - BACKUP_EPOCHS[-1]) / 2))
     for ((c = ${#LABELS[@]} - 1; c >= 0; c--)); do
         last_epoch=0 # of this label's newest backup; the list is oldest first
         for i in "${!BACKUP_DIRS[@]}"; do
             [[ ${BACKUP_LABELS[i]} == "${LABELS[c]}" ]] && last_epoch=${BACKUP_EPOCHS[i]}
         done
-        if ((NEW_EPOCH - last_epoch > LABEL_INTERVALS[c])); then
+        if ((NEW_EPOCH - last_epoch > LABEL_INTERVALS[c] - slack)); then
             NEW_LABEL=${LABELS[c]}
             return
         fi
@@ -763,6 +788,12 @@ plan_trees() {
         [[ $path != *[][*?\\]* && $path != *$'\n'* ]] ||
             die "unsupported character in mount point: $path"
     done
+}
+
+print_trees() {
+    local index
+
+    ((${#ZFS_DATASETS[@]})) || return 0
     echo "/home or /etc is on ZFS; copying from snapshot @$ZFS_SNAPSHOT_NAME"
     for index in "${!TREE_PATHS[@]}"; do
         echo "  ${TREE_PATHS[index]} <- ${TREE_SOURCES[index]}"
@@ -872,6 +903,45 @@ destroy_zfs_snapshots() {
         else
             warn "not destroying unexpected ZFS snapshot name: $snapshot"
         fi
+    done
+}
+
+# Sets SANOID_NAMES and SANOID_EPOCHS: sanoid's snapshots that exist on every
+# dataset in ZFS_DATASETS and are newer than the newest backup, oldest first. Sanoid
+# takes its hourly, daily and other snapshots of one moment under one timestamp
+# (autosnap_<date>_<time>_<label>), so each moment is copied once. Its time is the
+# newest creation time among the datasets, which sanoid snapshots one by one.
+list_sanoid_snapshots() {
+    local dataset output name creation moment newest=-1 i
+    declare -A name_count=() name_epoch=() moment_name=()
+
+    SANOID_NAMES=() SANOID_EPOCHS=()
+    ((${#BACKUP_EPOCHS[@]} == 0)) || newest=${BACKUP_EPOCHS[-1]}
+    for dataset in "${ZFS_DATASETS[@]}"; do
+        output=$(zfs list -H -p -t snapshot -o name,creation -d 1 "$dataset") ||
+            die "cannot list the ZFS snapshots of $dataset"
+        while IFS=$'\t' read -r name creation; do
+            [[ $name == "$dataset@autosnap_"* ]] || continue
+            name=${name#"$dataset@"}
+            [[ $creation =~ ^[0-9]+$ ]] || die "unexpected creation time of $dataset@$name: $creation"
+            name_count[$name]=$((${name_count[$name]:-0} + 1))
+            ((creation <= ${name_epoch[$name]:-0})) || name_epoch[$name]=$creation
+        done <<<"$output"
+    done
+    for name in "${!name_count[@]}"; do
+        ((${name_count[$name]} == ${#ZFS_DATASETS[@]} && ${name_epoch[$name]} > newest)) || continue
+        # Names may only hold what plan_trees can put in a path safely.
+        [[ $name =~ ^autosnap_[A-Za-z0-9_.:-]+$ ]] || continue
+        moment=${name%_*}
+        [[ -z ${moment_name[$moment]:-} || $name < ${moment_name[$moment]} ]] && moment_name[$moment]=$name
+    done
+    for moment in "${!moment_name[@]}"; do
+        name=${moment_name[$moment]}
+        for ((i = ${#SANOID_NAMES[@]}; i > 0; i--)); do
+            ((SANOID_EPOCHS[i - 1] > ${name_epoch[$name]})) || break
+            SANOID_NAMES[i]=${SANOID_NAMES[i - 1]} SANOID_EPOCHS[i]=${SANOID_EPOCHS[i - 1]}
+        done
+        SANOID_NAMES[i]=$name SANOID_EPOCHS[i]=${name_epoch[$name]}
     done
 }
 
@@ -1042,9 +1112,13 @@ copy_making_room() {
 # taken, so every backup carries it; a btrfs snapshot is committed to disk by the
 # time the command returns.
 publish_backup() {
-    printf 'snapshot_epoch=%s\ncompleted_at=%s\nsource_host=%s\n' \
-        "$NEW_EPOCH" "$(TZ=UTC0 printf '%(%FT%TZ)T' "$NEW_EPOCH")" "$HOST" \
-        >"$STAGING/$COMPLETE_MARKER"
+    local from=${1:-}
+
+    {
+        printf 'snapshot_epoch=%s\ncompleted_at=%s\nsource_host=%s\n' \
+            "$NEW_EPOCH" "$(TZ=UTC0 printf '%(%FT%TZ)T' "$NEW_EPOCH")" "$HOST"
+        [[ -z $from ]] || printf 'zfs_snapshot=%s\n' "$from"
+    } >"$STAGING/$COMPLETE_MARKER"
     [[ ! -e $NEW_BACKUP && ! -L $NEW_BACKUP ]] || die "snapshot already exists: $NEW_BACKUP"
     if on_btrfs; then
         btrfs subvolume snapshot -r "$STAGING" "$NEW_BACKUP"
@@ -1055,6 +1129,62 @@ publish_backup() {
     backup_epoch "$NEW_BACKUP" || die "the new backup is missing or incomplete: $NEW_BACKUP"
     on_btrfs && { is_subvolume "$NEW_BACKUP" || die "the new backup is not a btrfs snapshot: $NEW_BACKUP"; }
     return 0
+}
+
+# --- Making one backup.
+
+# Steps 3 to 6 of a run, for one backup. With $1, it is copied from the existing
+# ZFS snapshot of that name (one of sanoid's) and dated by its time $2. Without,
+# it is copied from a snapshot this script takes now (with ZFS) or from the live
+# files. Never call it where its status is tested: bash would then ignore set -e
+# for everything it runs.
+make_backup() {
+    local from=${1:-}
+
+    # 3. The new backup: its time, its label, and what it copies from where.
+    if [[ $from ]]; then
+        NEW_EPOCH=$2
+        ZFS_SNAPSHOT_NAME=$from
+    else
+        NEW_EPOCH=$(date -u +%s)
+        [[ $NEW_EPOCH =~ ^[0-9]+$ ]] || die "unexpected output from date: $NEW_EPOCH"
+        ZFS_SNAPSHOT_NAME=${ZFS_SNAPSHOT_PREFIX}-$NEW_EPOCH
+    fi
+    plan_trees
+    ((${#ZFS_DATASETS[@]} == 0)) || command -v zfs >/dev/null ||
+        die "zfs is required to back up from ZFS snapshots"
+    choose_label
+    print_trees
+    NEW_BACKUP=${HOST_DIR}/$(TZ=UTC0 printf '%(%F_%T)T' "$NEW_EPOCH")_${NEW_LABEL}
+    [[ ! -e $NEW_BACKUP && ! -L $NEW_BACKUP ]] || die "snapshot already exists: $NEW_BACKUP"
+    check_clock_and_retention
+
+    # 4. Freeze the sources and check they aren't emptied. A sanoid snapshot is
+    # frozen already, and stays sanoid's to delete.
+    verify_backup_mount
+    if ((${#ZFS_DATASETS[@]})) && [[ ! $from ]]; then
+        destroy_stale_zfs_snapshots
+        create_zfs_snapshots
+    fi
+    check_sources_not_emptied
+
+    # 5. Copy.
+    if on_btrfs; then
+        prepare_btrfs_staging
+    else
+        choose_recycled_backup
+        prepare_hardlink_staging "$RECYCLE"
+        scan_backups # a recycled backup is staging now
+    fi
+    copy_making_room
+    # Everything is in staging now, so our ZFS snapshot is no longer needed.
+    destroy_zfs_snapshots
+
+    # 6. Publish and apply retention.
+    publish_backup "$from"
+    rm -f -- "$HOST_DIR/$ACCEPT_EMPTY_FILE"
+    prune_old_backups
+    scan_backups # for the next backup of this run
 }
 
 # --- The run.
@@ -1112,6 +1242,7 @@ CONFIG_FILE=${HOST_DIR}/.config
 if [[ -e $CONFIG_FILE || -L $CONFIG_FILE ]]; then
     [[ -f $CONFIG_FILE && ! -L $CONFIG_FILE ]] || die "config must be a regular file: $CONFIG_FILE"
     root_controlled "$CONFIG_FILE" || die "config must be root-owned and not group/world writable: $CONFIG_FILE"
+    # shellcheck source=/dev/null
     . "$CONFIG_FILE"
 fi
 validate_config
@@ -1121,40 +1252,39 @@ mark_legacy_backups_complete
 finish_interrupted_deletions
 scan_backups
 
-# 3. The new backup: its time, its label, and what it copies from where.
-NEW_EPOCH=$(date -u +%s)
-[[ $NEW_EPOCH =~ ^[0-9]+$ ]] || die "unexpected output from date: $NEW_EPOCH"
-ZFS_SNAPSHOT_NAME=${ZFS_SNAPSHOT_PREFIX}-$NEW_EPOCH
-plan_trees
-((${#ZFS_DATASETS[@]} == 0)) || command -v zfs >/dev/null ||
-    die "zfs is required to back up from ZFS snapshots"
-choose_label
-NEW_BACKUP=${HOST_DIR}/$(TZ=UTC0 printf '%(%F_%T)T' "$NEW_EPOCH")_${NEW_LABEL}
-[[ ! -e $NEW_BACKUP && ! -L $NEW_BACKUP ]] || die "snapshot already exists: $NEW_BACKUP"
-check_clock_and_retention
-
-# 4. Freeze the sources and check they aren't emptied.
-verify_backup_mount
-if ((${#ZFS_DATASETS[@]})); then
-    destroy_stale_zfs_snapshots
-    create_zfs_snapshots
-fi
-check_sources_not_emptied
-
-# 5. Copy.
-if on_btrfs; then
-    prepare_btrfs_staging
-else
-    choose_recycled_backup
-    prepare_hardlink_staging "$RECYCLE"
-    scan_backups # a recycled backup is staging now
-fi
 RSYNC_ERR=$(mktemp "${LOG_DIR}/${SCRIPT_NAME}.${HOST}.rsync.XXXXXX")
-copy_making_room
-# Everything is in staging now, so the ZFS snapshot is no longer needed.
-destroy_zfs_snapshots
 
-# 6. Publish and apply retention.
-publish_backup
-rm -f -- "$HOST_DIR/$ACCEPT_EMPTY_FILE"
-prune_old_backups
+if ((!SANOID_SNAPSHOTS)); then
+    make_backup
+    exit 0
+fi
+
+# With SANOID_SNAPSHOTS: one backup per sanoid snapshot taken since the newest
+# backup, then one of the current state if asked for or if sanoid seems stalled.
+[[ $HOST == "$LOCAL_HOST" ]] || die "SANOID_SNAPSHOTS works only for this machine's own backups"
+plan_trees
+((${#ZFS_DATASETS[@]})) || die "SANOID_SNAPSHOTS needs /home or /etc on ZFS"
+command -v zfs >/dev/null || die "zfs is required to back up from ZFS snapshots"
+list_sanoid_snapshots
+if ((${#SANOID_NAMES[@]})); then
+    echo "Sanoid snapshots to copy: ${#SANOID_NAMES[@]}, @${SANOID_NAMES[0]} to @${SANOID_NAMES[-1]}"
+fi
+for i in "${!SANOID_NAMES[@]}"; do
+    # A backup that retention would delete right away isn't worth copying.
+    NEW_EPOCH=${SANOID_EPOCHS[i]}
+    choose_label
+    c=${LABEL_INDEX[$NEW_LABEL]}
+    if ((NEW_EPOCH < RUN_STARTED - LABEL_INTERVALS[c] * LABEL_KEEP[c])); then
+        echo "Skipping sanoid snapshot @${SANOID_NAMES[i]}: retention would delete it right away (label $NEW_LABEL)"
+        continue
+    fi
+    make_backup "${SANOID_NAMES[i]}" "${SANOID_EPOCHS[i]}"
+done
+if ((BACKUP_NOW)); then
+    make_backup
+elif ! newest=$(newest_backup) || ((RUN_STARTED - BACKUP_EPOCHS[-1] > 2 * LABEL_INTERVALS[0])); then
+    [[ ! $newest ]] || warn "no sanoid snapshot since ${newest##*/}; backing up the current state instead"
+    make_backup
+elif ((${#SANOID_NAMES[@]} == 0)); then
+    echo "Nothing to back up: no sanoid snapshot is newer than ${newest##*/}"
+fi

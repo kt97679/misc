@@ -57,7 +57,7 @@ assert_file_not_contains() {
 setup() {
     unset TEST_FINDMNT_FAIL TEST_FINDMNT_FAIL_ON_CALL TEST_MOUNT_TARGET TEST_MOUNT_SOURCE TEST_RSYNC_DELETE_PATH
     unset TEST_MOUNT_FSTYPE TEST_MOUNT_FSTYPE_CHANGE_ON_CALL TEST_MOUNT_FSTYPE_CHANGED TEST_BTRFS_FAIL_ON
-    unset TEST_ZFS_FAIL_ON TEST_BTRFS_NOOP_ON WORK_DIR
+    unset TEST_ZFS_FAIL_ON TEST_BTRFS_NOOP_ON WORK_DIR TEST_RSYNC_NO_FILES BACKUP_NOW
     SANDBOX=$(mktemp -d /tmp/backup-script-test.XXXXXX)
     export TEST_STATE=${SANDBOX}/state
     export TEST_BIN=${SANDBOX}/bin
@@ -143,8 +143,12 @@ printf '%q ' "$@" >>"$TEST_STATE/rsync.calls"
 printf '\n' >>"$TEST_STATE/rsync.calls"
 
 destination=${!#}
-mkdir -p -- "$destination"
-touch -- "${destination}/partial-${count}"
+# With TEST_RSYNC_NO_FILES nothing is copied, so a later backup in the same run
+# doesn't find files in the previous one that its sources (absent here) lack.
+if [[ -z ${TEST_RSYNC_NO_FILES:-} ]]; then
+    mkdir -p -- "$destination"
+    touch -- "${destination}/partial-${count}"
+fi
 
 if [[ ${TEST_RSYNC_DELETE_PATH:-} ]]; then
     for arg; do
@@ -159,7 +163,7 @@ message=${line#*|}
 [[ $message == "$line" ]] && message=
 [[ $message ]] && printf '%s\n' "$message" >&2
 ((rc == 0)) || exit "$rc"
-touch -- "${destination}/success-${count}"
+[[ ${TEST_RSYNC_NO_FILES:-} ]] || touch -- "${destination}/success-${count}"
 EOF
 
     chmod +x -- "$TEST_BIN"/*
@@ -281,8 +285,15 @@ fi
 case $1 in
     snapshot | destroy) ;;
     list)
+        fields=name previous=
+        for arg; do
+            [[ $previous == -o ]] && fields=$arg
+            previous=$arg
+        done
         [[ ! -f $TEST_STATE/zfs.snapshots ]] ||
-            awk -v prefix="${!#}@" 'index($0, prefix) == 1' "$TEST_STATE/zfs.snapshots"
+            awk -F '\t' -v prefix="${!#}@" -v fields="$fields" \
+                'index($0, prefix) == 1 { if (fields == "name") print $1; else print }' \
+                "$TEST_STATE/zfs.snapshots"
         ;;
     *) exit 2 ;;
 esac
@@ -807,16 +818,51 @@ test_symlinked_snapshot_marker_is_ignored() {
     fi
 }
 
-test_exact_retention_boundary_selects_next_interval() {
+test_label_due_within_half_the_time_since_the_previous_backup() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
     write_config "$TEST_HOSTNAME" \
         'RETENTION=("hourly 3600 168" "daily 86400 180" "weekly 604800 104")'
     snapshot "$TEST_HOSTNAME" 2026-07-02_11:00:00_weekly 1782990000
-    snapshot "$TEST_HOSTNAME" 2026-07-01_12:00:00_daily 1782907200
+    # Runs every 30 minutes: a daily is due 15 minutes early, not 16.
+    snapshot "$TEST_HOSTNAME" 2026-07-01_12:16:00_daily 1782908160
     snapshot "$TEST_HOSTNAME" 2026-07-02_11:30:00_hourly 1782991800
     run_backup
     assert_eq "$RUN_STATUS" 0 || return
-    assert_exists "$BACKUP_ROOT/$TEST_HOSTNAME/2026-07-02_12:00:00_hourly" || return
-    assert_not_exists "$BACKUP_ROOT/$TEST_HOSTNAME/2026-07-02_12:00:00_daily" || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_hourly" || return
+    rm -rf -- "$host_dir"/2026-07-02_12:00:00_hourly "$host_dir"/2026-07-01_12:16:00_daily
+    snapshot "$TEST_HOSTNAME" 2026-07-01_12:14:00_daily 1782908040
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_daily" || return
+}
+
+test_nightly_run_a_little_early_still_makes_a_daily() {
+    write_config "$TEST_HOSTNAME" \
+        'RETENTION=("hourly 3600 168" "daily 86400 180" "weekly 604800 104")'
+    snapshot "$TEST_HOSTNAME" 2026-06-29_12:00:10_weekly 1782734410
+    snapshot "$TEST_HOSTNAME" 2026-07-01_12:00:10_daily 1782907210
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$BACKUP_ROOT/$TEST_HOSTNAME/2026-07-02_12:00:00_daily" || return
+}
+
+test_nightly_runs_make_a_weekly_every_seventh_night() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
+    write_config "$TEST_HOSTNAME" \
+        'RETENTION=("hourly 3600 168" "daily 86400 180" "weekly 604800 104")'
+    # Six nights after the weekly: still a daily.
+    snapshot "$TEST_HOSTNAME" 2026-06-26_12:00:00_weekly 1782475200
+    snapshot "$TEST_HOSTNAME" 2026-07-01_12:00:00_daily 1782907200
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_daily" || return
+    # Seven nights after it, even if this run starts a little earlier: a weekly.
+    rm -rf -- "$host_dir"/20*
+    snapshot "$TEST_HOSTNAME" 2026-06-25_12:00:30_weekly 1782388830
+    snapshot "$TEST_HOSTNAME" 2026-07-01_12:00:30_daily 1782907230
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_weekly" || return
 }
 
 test_emergency_cleanup_prefers_shortest_interval() {
@@ -1147,6 +1193,239 @@ test_btrfs_snapshot_collision_stops_before_staging() {
     assert_not_exists "$BACKUP_ROOT/$TEST_HOSTNAME/.staging" || return
     assert_not_exists "$TEST_STATE/rsync.count" || return
     assert_not_exists "$TEST_STATE/btrfs.calls" || return
+}
+
+# --- Sanoid snapshots ---------------------------------------------------------
+
+# Epoch of a UTC name time like 2026-07-02_09:00:00.
+at() {
+    "$REAL_DATE" -u -d "${1/_/ }" +%s
+}
+
+# Adds sanoid snapshot $1, created at $2, to the datasets given (by default both
+# of use_zfs_source's).
+sanoid_snapshot() {
+    local name=$1 epoch=$2 dataset
+    shift 2
+    (($#)) || set -- testpool/ROOT/system testpool/USERDATA/user
+    for dataset; do
+        printf '%s@%s\t%s\n' "$dataset" "$name" "$epoch" >>"$TEST_STATE/zfs.snapshots"
+    done
+}
+
+use_sanoid() {
+    use_btrfs
+    use_zfs_source
+    export TEST_RSYNC_NO_FILES=1
+    write_config "$TEST_HOSTNAME" "RETENTION=(${1:-\"hourly 3600 168\" \"daily 86400 180\"})" 'SANOID_SNAPSHOTS=1'
+}
+
+own_zfs_calls() {
+    grep -c '^snapshot \|^destroy ' "$TEST_STATE/zfs.calls"
+}
+
+test_sanoid_copies_new_snapshots_oldest_first() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME hour
+
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_00:00:00_daily "$(at 2026-07-02_00:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_08:00:00_hourly "$(at 2026-07-02_08:00:00)"
+    for hour in 07 09 11 10; do
+        sanoid_snapshot "autosnap_2026-07-02_$hour:00:00_hourly" "$(at "2026-07-02_$hour:00:00")"
+    done
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" 'Sanoid snapshots to copy: 3, @autosnap_2026-07-02_09:00:00_hourly to @autosnap_2026-07-02_11:00:00_hourly' || return
+    for hour in 09 10 11; do
+        assert_exists "$host_dir/2026-07-02_$hour:00:00_hourly" || return
+        assert_file_contains "$host_dir/2026-07-02_$hour:00:00_hourly/.complete" \
+            "zfs_snapshot=autosnap_2026-07-02_$hour:00:00_hourly" || return
+    done
+    assert_not_exists "$host_dir/2026-07-02_07:00:00_hourly" || return
+    assert_eq "$(find "$host_dir" -maxdepth 1 -name '2026-07-02_12:*' | wc -l)" 0 || return
+    assert_eq "$(grep -o 'snapshot/autosnap_[^/]*/etc/' "$TEST_STATE/rsync.calls" | paste -sd ' ')" \
+        'snapshot/autosnap_2026-07-02_09:00:00_hourly/etc/ snapshot/autosnap_2026-07-02_10:00:00_hourly/etc/ snapshot/autosnap_2026-07-02_11:00:00_hourly/etc/' || return
+    assert_file_contains "$TEST_STATE/rsync.calls" \
+        "/home/user/.zfs/snapshot/autosnap_2026-07-02_11:00:00_hourly/ $host_dir/.staging/home/user/" || return
+    assert_eq "$(own_zfs_calls)" 0 || return
+}
+
+test_sanoid_one_backup_per_moment() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
+
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-01_11:00:00_daily "$(at 2026-07-01_11:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    # Sanoid's hourly and daily of one moment; it got to the user dataset 2 s later.
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)" testpool/ROOT/system
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_daily "$(at 2026-07-02_11:00:00)" testpool/ROOT/system
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:02)" testpool/USERDATA/user
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_daily "$(at 2026-07-02_11:00:02)" testpool/USERDATA/user
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" 'Sanoid snapshots to copy: 1,' || return
+    # Dated by the later creation time, labeled by this script's rules.
+    assert_exists "$host_dir/2026-07-02_11:00:02_daily" || return
+    assert_eq "$(find "$host_dir" -maxdepth 1 -name '2026-07-02_11:*' | wc -l)" 1 || return
+}
+
+test_sanoid_snapshot_must_exist_on_every_dataset() {
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)" testpool/USERDATA/user
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" 'Nothing to back up: no sanoid snapshot is newer than 2026-07-02_10:00:00_hourly' || return
+    assert_not_exists "$TEST_STATE/rsync.count" || return
+}
+
+test_sanoid_skips_what_retention_would_delete() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
+
+    use_sanoid '"hourly 3600 3" "daily 86400 30"'
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_01:00:00_daily "$(at 2026-07-02_01:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_02:00:00_hourly "$(at 2026-07-02_02:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_03:00:00_hourly "$(at 2026-07-02_03:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" \
+        'Skipping sanoid snapshot @autosnap_2026-07-02_03:00:00_hourly: retention would delete it right away (label hourly)' || return
+    assert_not_exists "$host_dir/2026-07-02_03:00:00_hourly" || return
+    assert_exists "$host_dir/2026-07-02_11:00:00_hourly" || return
+}
+
+test_sanoid_fills_a_gap_with_the_usual_labels() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME day
+
+    use_sanoid '"hourly 3600 168" "daily 86400 180" "weekly 604800 104"'
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-06-28_00:00:00_weekly "$(at 2026-06-28_00:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-06-29_00:00:00_daily "$(at 2026-06-29_00:00:00)"
+    for day in 2026-06-30 2026-07-01 2026-07-02; do
+        sanoid_snapshot "autosnap_${day}_00:00:00_daily" "$(at "${day}_00:00:00")"
+        sanoid_snapshot "autosnap_${day}_00:00:00_hourly" "$(at "${day}_00:00:00")"
+    done
+    sanoid_snapshot autosnap_2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" 'Sanoid snapshots to copy: 5,' || return
+    assert_eq "$(find "$host_dir" -maxdepth 1 -name '20*' -newer "$host_dir/2026-06-29_00:00:00_daily" -printf '%f\n' | sort | paste -sd ' ')" \
+        '2026-06-30_00:00:00_daily 2026-07-01_00:00:00_daily 2026-07-02_00:00:00_daily 2026-07-02_10:00:00_hourly 2026-07-02_11:00:00_hourly' || return
+}
+
+test_sanoid_falls_back_when_sanoid_stalls() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME snap=backup-script-$TEST_NOW
+
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_00:00:00_daily "$(at 2026-07-02_00:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_09:00:00_hourly "$(at 2026-07-02_09:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_09:00:00_hourly "$(at 2026-07-02_09:00:00)"
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" \
+        'no sanoid snapshot since 2026-07-02_09:00:00_hourly; backing up the current state instead' || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_hourly" || return
+    assert_file_contains "$TEST_STATE/zfs.calls" "snapshot testpool/ROOT/system@$snap testpool/USERDATA/user@$snap" || return
+    assert_file_contains "$TEST_STATE/zfs.calls" "destroy testpool/USERDATA/user@$snap" || return
+}
+
+test_sanoid_nothing_to_do_when_the_newest_backup_is_recent() {
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_contains "$RUN_OUTPUT" 'Nothing to back up: no sanoid snapshot is newer than 2026-07-02_11:00:00_hourly' || return
+    assert_not_exists "$TEST_STATE/rsync.count" || return
+    assert_eq "$(own_zfs_calls)" 0 || return
+}
+
+test_sanoid_backup_now_also_backs_up_the_current_state() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
+
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_00:00:00_daily "$(at 2026-07-02_00:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    export BACKUP_NOW=1
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$host_dir/2026-07-02_11:00:00_hourly" || return
+    assert_exists "$host_dir/2026-07-02_12:00:00_hourly" || return
+    assert_file_not_contains "$host_dir/2026-07-02_12:00:00_hourly/.complete" 'zfs_snapshot=' || return
+    assert_file_contains "$TEST_STATE/zfs.calls" "snapshot testpool/ROOT/system@backup-script-$TEST_NOW" || return
+}
+
+test_sanoid_first_backup_copies_what_sanoid_has() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME
+
+    use_sanoid
+    sanoid_snapshot autosnap_2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    sanoid_snapshot autosnap_2026-07-02_11:00:00_hourly "$(at 2026-07-02_11:00:00)"
+    run_backup
+    assert_eq "$RUN_STATUS" 0 || return
+    assert_exists "$host_dir/2026-07-02_10:00:00_daily" || return
+    assert_exists "$host_dir/2026-07-02_11:00:00_hourly" || return
+    assert_eq "$(own_zfs_calls)" 0 || return
+}
+
+test_sanoid_copy_failure_stops_the_run() {
+    local host_dir=$BACKUP_ROOT/$TEST_HOSTNAME hour
+
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_00:00:00_daily "$(at 2026-07-02_00:00:00)"
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_08:00:00_hourly "$(at 2026-07-02_08:00:00)"
+    for hour in 09 10 11; do
+        sanoid_snapshot "autosnap_2026-07-02_$hour:00:00_hourly" "$(at "2026-07-02_$hour:00:00")"
+    done
+    # Three trees per backup: the second backup's first pass fails.
+    printf '0|\n0|\n0|\n23|connection reset by peer\n' >"$TEST_STATE/rsync.plan"
+    run_backup
+    assert_eq "$RUN_STATUS" 23 || return
+    assert_exists "$host_dir/2026-07-02_09:00:00_hourly" || return
+    assert_not_exists "$host_dir/2026-07-02_10:00:00_hourly" || return
+    assert_not_exists "$host_dir/2026-07-02_11:00:00_hourly" || return
+    assert_eq "$(own_zfs_calls)" 0 || return
+}
+
+test_sanoid_listing_failure_stops_the_run() {
+    use_sanoid
+    subvolume_snapshot "$TEST_HOSTNAME" 2026-07-02_10:00:00_hourly "$(at 2026-07-02_10:00:00)"
+    export TEST_ZFS_FAIL_ON=list
+    run_backup
+    assert_eq "$RUN_STATUS" 1 || return
+    assert_contains "$RUN_OUTPUT" 'cannot list the ZFS snapshots of testpool/ROOT/system' || return
+    assert_not_exists "$TEST_STATE/rsync.count" || return
+}
+
+test_sanoid_refused_for_a_remote_host() {
+    write_config remote-host 'RETENTION=("hourly 3600 168")' 'SANOID_SNAPSHOTS=1'
+    export SUDO_USER=tester
+    run_backup remote-host
+    assert_eq "$RUN_STATUS" 1 || return
+    assert_contains "$RUN_OUTPUT" "SANOID_SNAPSHOTS works only for this machine's own backups" || return
+    assert_not_exists "$TEST_STATE/rsync.count" || return
+}
+
+test_sanoid_refused_without_zfs() {
+    use_btrfs
+    write_config "$TEST_HOSTNAME" 'RETENTION=("hourly 3600 168")' 'SANOID_SNAPSHOTS=1'
+    run_backup
+    assert_eq "$RUN_STATUS" 1 || return
+    assert_contains "$RUN_OUTPUT" 'SANOID_SNAPSHOTS needs /home or /etc on ZFS' || return
+}
+
+test_sanoid_settings_are_validated() {
+    write_config "$TEST_HOSTNAME" 'RETENTION=("hourly 3600 168")' 'SANOID_SNAPSHOTS=yes'
+    run_backup
+    assert_eq "$RUN_STATUS" 1 || return
+    assert_contains "$RUN_OUTPUT" 'SANOID_SNAPSHOTS must be 0 or 1: yes' || return
+    write_config "$TEST_HOSTNAME" 'RETENTION=("hourly 3600 168")'
+    export BACKUP_NOW=2
+    run_backup
+    assert_eq "$RUN_STATUS" 1 || return
+    assert_contains "$RUN_OUTPUT" 'BACKUP_NOW must be 0 or 1: 2' || return
 }
 
 # --- ZFS source -------------------------------------------------------------
@@ -1772,10 +2051,12 @@ test_retention_intervals_take_units() {
     run_backup
     assert_eq "$RUN_STATUS" 0 || return
     assert_eq "$(find "$host_dir" -maxdepth 1 -type d -name '*_hourly' | wc -l)" 2 || return
-    # 1d is a day: a daily backup from 23 hours ago means the new one is hourly
+    # 1d is a day: with backups every half hour, a daily backup from 23 hours ago
+    # means the new one is hourly
     rm -rf -- "$host_dir"/20*
     write_config "$TEST_HOSTNAME" 'RETENTION=("hourly 1h 168" "daily 1d 30")'
     snapshot "$TEST_HOSTNAME" 2026-07-01_13:00:00_daily 1782910800
+    snapshot "$TEST_HOSTNAME" 2026-07-02_11:30:00_hourly 1782991800
     run_backup
     assert_eq "$RUN_STATUS" 0 || return
     assert_exists "$host_dir/2026-07-02_12:00:00_hourly" || return
@@ -1857,7 +2138,9 @@ run_test 'previous snapshot selection uses timestamp name' test_previous_snapsho
 run_test 'unmarked snapshot is ignored when legacy trust is disabled' test_unmarked_snapshot_is_ignored_when_legacy_trust_disabled
 run_test 'invalid snapshot marker is ignored' test_invalid_snapshot_marker_is_ignored
 run_test 'symlinked snapshot marker is ignored' test_symlinked_snapshot_marker_is_ignored
-run_test 'exact retention boundary selects next interval' test_exact_retention_boundary_selects_next_interval
+run_test 'label is due within half the time since the previous backup' test_label_due_within_half_the_time_since_the_previous_backup
+run_test 'nightly run a little early still makes a daily' test_nightly_run_a_little_early_still_makes_a_daily
+run_test 'nightly runs make a weekly every seventh night' test_nightly_runs_make_a_weekly_every_seventh_night
 run_test 'emergency cleanup prefers shortest interval' test_emergency_cleanup_prefers_shortest_interval
 
 run_test 'unsupported filesystem is rejected' test_unsupported_filesystem_is_rejected
@@ -1933,6 +2216,20 @@ run_test 'hardlink mode never recycles the newest backup' test_hardlink_never_re
 run_test 'retention intervals take units' test_retention_intervals_take_units
 run_test 'free-space reserve takes a size' test_free_space_reserve_takes_a_size
 run_test 'renamed settings are refused' test_renamed_settings_are_refused
+run_test 'sanoid snapshots are copied oldest first' test_sanoid_copies_new_snapshots_oldest_first
+run_test 'sanoid snapshots of one moment make one backup' test_sanoid_one_backup_per_moment
+run_test 'a sanoid snapshot must exist on every dataset' test_sanoid_snapshot_must_exist_on_every_dataset
+run_test 'sanoid snapshots retention would delete are skipped' test_sanoid_skips_what_retention_would_delete
+run_test 'a gap is filled with the usual labels' test_sanoid_fills_a_gap_with_the_usual_labels
+run_test 'own snapshot when sanoid stalls' test_sanoid_falls_back_when_sanoid_stalls
+run_test 'nothing to do when the newest backup is recent' test_sanoid_nothing_to_do_when_the_newest_backup_is_recent
+run_test 'BACKUP_NOW also backs up the current state' test_sanoid_backup_now_also_backs_up_the_current_state
+run_test 'first backup copies what sanoid has' test_sanoid_first_backup_copies_what_sanoid_has
+run_test 'a failed sanoid copy stops the run' test_sanoid_copy_failure_stops_the_run
+run_test 'a failed sanoid listing stops the run' test_sanoid_listing_failure_stops_the_run
+run_test 'sanoid mode is refused for a remote host' test_sanoid_refused_for_a_remote_host
+run_test 'sanoid mode is refused without ZFS' test_sanoid_refused_without_zfs
+run_test 'sanoid settings are validated' test_sanoid_settings_are_validated
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 ((FAIL == 0))
