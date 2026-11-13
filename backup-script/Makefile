@@ -1,8 +1,8 @@
 .PHONY: test check
 
 test:
-	bash tests/run.sh
+	bash tests/with-userns.sh
 
 check:
-	bash -n backup.sh tests/run.sh
+	bash -n backup.sh tests/run.sh tests/with-userns.sh
 	$(MAKE) test
